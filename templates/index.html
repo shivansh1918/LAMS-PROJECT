@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card home-hero home-hero-premium">
+    <p class="hero-tag">Smart Campus Platform</p>
+    <h1 class="site-title">Location Attendance Management System</h1>
+    <p class="hero-subtitle">Bareilly College, Bareilly.</p>
+    <p class="hero-desc">Professional location-based attendance management for students, teachers, and admin workflows.</p>
+    <div class="hero-pills">
+        <span>Geo-Fenced Marking</span>
+        <span>Semester-Wise Reports</span>
+        <span>Role-Based Dashboards</span>
+    </div>
+</section>
+
+<section class="card register-highlight">
+    <div class="register-icon-wrap">
+        <img class="register-icon-img" src="{{ url_for('static', filename='img/registration-map.svg') }}" alt="Registration Map Icon">
+    </div>
+    <h3>Registration Center</h3>
+    <p>Create your account with role-based onboarding and streamlined access flow.</p>
+    <div class="auth-strip">
+        <a href="{{ url_for('register_student') }}"><button>Student Register</button></a>
+        <a href="{{ url_for('register_teacher') }}"><button class="btn-secondary">Teacher Register</button></a>
+        <a href="{{ url_for('register_admin') }}"><button class="btn-secondary">Admin Register</button></a>
+        <a href="{{ url_for('login') }}"><button>Common Login</button></a>
+    </div>
+</section>
+
+<section class="home-kpi-grid">
+    <div class="card home-kpi">
+        <h4>30m</h4>
+        <p>Attendance range lock</p>
+    </div>
+    <div class="card home-kpi">
+        <h4>6</h4>
+        <p>Semester support</p>
+    </div>
+    <div class="card home-kpi">
+        <h4>3</h4>
+        <p>Core user roles</p>
+    </div>
+</section>
+
+<h2 class="feature-title">Features</h2>
+<section class="feature-grid">
+    <div class="card feature-box">
+        <h3>Student Attendance</h3>
+        <p>Semester-wise subjects, live session tracking, and 30-meter geofence validation before attendance mark.</p>
+    </div>
+    <div class="card feature-box">
+        <h3>Teacher Session</h3>
+        <p>Start subject sessions with live location and verify submitted attendance records from teacher dashboard.</p>
+    </div>
+    <div class="card feature-box">
+        <h3>Subject Control</h3>
+        <p>Admin can add and manage subjects for Semester 1 to Semester 6 with centralized control.</p>
+    </div>
+    <div class="card feature-box">
+        <h3>Admin Management</h3>
+        <p>Manage users, verify attendance, clear semester data, and control records with admin-only actions.</p>
+    </div>
+    <div class="card feature-box">
+        <h3>Analytics & Reports</h3>
+        <p>View semester-wise attendance percentages, subject reports, and filtered records for decision making.</p>
+    </div>
+</section>
+{% endblock %}

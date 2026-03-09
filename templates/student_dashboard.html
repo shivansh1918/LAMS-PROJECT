@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2>Student Dashboard</h2>
+    <p><b>Name:</b> {{ user.name }} | <b>Roll:</b> {{ student.roll_no }} | <b>Registered Semester:</b> {{ semester.name }}</p>
+    <p><b>Last Login:</b> {{ user.last_login_at if user.last_login_at else "First Login" }}</p>
+    <p><span class="badge">Overall Attendance: {{ overall_percentage }}%</span></p>
+</div>
+
+<div class="card">
+    <h3>Select Semester</h3>
+    <div class="row-3">
+        {% for sem in semesters %}
+            <a href="{{ url_for('student_dashboard', semester_id=sem.id) }}">
+                <button type="button" class="{{ 'btn-secondary' if selected_semester and selected_semester.id != sem.id else '' }}">
+                    {{ sem.name }}
+                </button>
+            </a>
+        {% endfor %}
+    </div>
+    <p style="margin-top:10px;"><b>Opened:</b> {{ selected_semester.name if selected_semester else 'N/A' }}</p>
+</div>
+
+<div class="card">
+    <h3>Subjects - {{ selected_semester.name if selected_semester else '' }}</h3>
+    {% if student.semester_id != (selected_semester.id if selected_semester else 0) %}
+        <p>You can view subjects of other semesters, but attendance can be marked only for your registered semester.</p>
+    {% endif %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Subject</th>
+                    <th>Session Status</th>
+                    <th>Teacher</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for subject in subjects %}
+                    {% set session_data = active_session_by_subject.get(subject.id) %}
+                    <tr>
+                        <td>{{ subject.name }}</td>
+                        <td>
+                            {% if session_data %}
+                                <span class="badge">Active</span>
+                            {% else %}
+                                <span class="badge badge-danger">Inactive</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ session_data[1].name if session_data else '-' }}</td>
+                        <td>
+                            {% if session_data and student.semester_id == selected_semester.id %}
+                                {% set sid = session_data[0].id %}
+                                {% if sid in marked_session_ids %}
+                                    <button type="button" class="btn-marked" data-session-id="{{ sid }}" disabled>Marked</button>
+                                {% else %}
+                                    <button
+                                        type="button"
+                                        data-session-id="{{ sid }}"
+                                        onclick="markAttendance({{ sid }}, this)"
+                                    >Mark Attendance</button>
+                                {% endif %}
+                            {% elif session_data %}
+                                <button type="button" class="btn-secondary" disabled>Semester Mismatch</button>
+                            {% else %}
+                                <button type="button" class="btn-secondary" disabled>Wait for Teacher Session</button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="4">No subjects available for this semester.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Subject-wise Attendance Percentage</h3>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Subject</th>
+                    <th>Present</th>
+                    <th>Total Sessions</th>
+                    <th>Percentage</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in subject_percentages %}
+                    <tr>
+                        <td>{{ item.subject.name }}</td>
+                        <td>{{ item.present }}</td>
+                        <td>{{ item.total }}</td>
+                        <td>{{ item.percentage }}%</td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="4">No subjects are enabled for your selected semester.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Semester-wise Attendance Percentage (My Records)</h3>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Semester</th>
+                    <th>Present</th>
+                    <th>Total Sessions</th>
+                    <th>Percentage</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in semester_percentage_report %}
+                    <tr>
+                        <td>{{ item.semester }}</td>
+                        <td>{{ item.present }}</td>
+                        <td>{{ item.total }}</td>
+                        <td>{{ item.percentage }}%</td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="4">No personal semester attendance history available yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <h3>My Attendance Records</h3>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Time</th>
+                    <th>Semester</th>
+                    <th>Subject</th>
+                    <th>Teacher</th>
+                    <th>Teacher Verify</th>
+                    <th>Latitude</th>
+                    <th>Longitude</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for att, subject, sem, teacher_user in my_attendance %}
+                    <tr>
+                        <td>{{ att.date }}</td>
+                        <td>{{ att.time }}</td>
+                        <td>{{ sem.name }}</td>
+                        <td>{{ subject.name }}</td>
+                        <td>{{ teacher_user.name }}</td>
+                        <td>{{ "Verified" if att.teacher_verified else "Pending" }}</td>
+                        <td>{{ att.latitude }}</td>
+                        <td>{{ att.longitude }}</td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="8">No attendance records yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card auth-card">
+    <h2>{{ "Mobile OTP Verification" if otp_mode == "mobile" else "Email OTP Verification" }}</h2>
+    <p>
+        Enter the 6-digit OTP sent to
+        <b>{{ otp_target }}</b>.
+    </p>
+    <form method="post">
+        <label for="otp">OTP</label>
+        <input id="otp" name="otp" maxlength="6" minlength="6" required>
+        <button type="submit">Verify OTP</button>
+    </form>
+    <form
+        method="post"
+        action="{{ url_for('resend_student_registration_otp') if otp_mode == 'mobile' else url_for('resend_otp') }}"
+        style="margin-top: 10px;"
+    >
+        <button type="submit" class="btn-secondary">Resend OTP</button>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title or "LAMS" }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="bg-orb orb-1"></div>
+    <div class="bg-orb orb-2"></div>
+    <div class="bg-grid"></div>
+    <nav class="navbar">
+        <div class="container nav-wrap">
+            <a class="brand" href="{{ url_for('index') }}">
+                <span>LAMS</span>
+            </a>
+            <span class="college-label">
+                {% if lams_logo %}
+                    <img class="college-logo college-logo-bg" src="{{ lams_logo }}" alt="College Logo">
+                {% endif %}
+                <span class="college-text">Bareilly College Bareilly</span>
+            </span>
+            <div class="nav-links">
+                {% if session.get('user_id') %}
+                    {% if session.get('role') == 'admin' %}
+                        <a href="{{ url_for('admin_dashboard') }}">Admin Dashboard</a>
+                    {% elif session.get('role') == 'teacher' %}
+                        <a href="{{ url_for('teacher_dashboard') }}">Teacher Dashboard</a>
+                    {% elif session.get('role') == 'student' %}
+                        <a href="{{ url_for('student_dashboard') }}">Student Dashboard</a>
+                    {% endif %}
+                    <a href="{{ url_for('logout') }}">Logout</a>
+                {% else %}
+                    <a href="{{ url_for('login') }}">Login</a>
+                    <a href="{{ url_for('register_admin') }}">Admin Register</a>
+                    <a href="{{ url_for('register_student') }}">Student Register</a>
+                    <a href="{{ url_for('register_teacher') }}">Teacher Register</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <main class="container" style="padding: 18px 0 36px 0;">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="flash {{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </main>
+
+    <script src="{{ url_for('static', filename='js/project.js', v='20260307-02') }}"></script>
+</body>
+</html>

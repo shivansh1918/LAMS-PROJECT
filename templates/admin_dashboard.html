@@ -1,0 +1,797 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card" id="admin-overview">
+    <h2>Admin Dashboard</h2>
+    <p>Manage semesters, subjects, users and attendance reports.</p>
+    <p><span class="badge">Current Semester: {{ current_semester.name if current_semester else "Not Set" }}</span></p>
+    <p><span class="badge">Last Login: {{ admin_user.last_login_at if admin_user and admin_user.last_login_at else "First Login" }}</span></p>
+</div>
+
+<div class="card admin-toolbar">
+    <button type="button" class="admin-nav-btn" data-target="account">Account</button>
+    <button type="button" class="admin-nav-btn" data-target="semester">Semester</button>
+    <button type="button" class="admin-nav-btn" data-target="subject">Subjects</button>
+    <button type="button" class="admin-nav-btn" data-target="users">Users</button>
+    <button type="button" class="admin-nav-btn" data-target="student-details">Student Details</button>
+    <button type="button" class="admin-nav-btn" data-target="attendance">Attendance</button>
+    <button type="button" class="admin-nav-btn" data-target="report">Report</button>
+</div>
+
+<div class="card admin-panel users-sub-toolbar" data-panel="users">
+    <button type="button" class="users-sub-btn" data-target="add-student">
+        <span class="sub-icon">AS</span>
+        <span>Add Student</span>
+    </button>
+    <button type="button" class="users-sub-btn" data-target="delete-data">
+        <span class="sub-icon">DD</span>
+        <span>Delete Data</span>
+    </button>
+    <button type="button" class="users-sub-btn" data-target="teachers">
+        <span class="sub-icon">T</span>
+        <span>Teachers</span>
+        <span class="sub-count">{{ teachers|length }}</span>
+    </button>
+    <button type="button" class="users-sub-btn" data-target="students">
+        <span class="sub-icon">S</span>
+        <span>Students</span>
+        <span class="sub-count">{{ students|length }}</span>
+    </button>
+</div>
+
+<div class="card admin-panel" data-panel="account">
+    <h3>Admin Account</h3>
+    <form method="post" action="{{ url_for('update_admin_account') }}">
+        <label for="admin_email">New Email</label>
+        <input id="admin_email" type="email" name="email" value="{{ admin_user.email if admin_user else '' }}" required>
+
+        <label for="admin_department">Department</label>
+        <input id="admin_department" type="text" name="department" value="{{ admin_user.department if admin_user and admin_user.department else '' }}" required>
+
+        <label for="admin_password">New Password (optional)</label>
+        <input id="admin_password" type="password" name="password" placeholder="Leave blank to keep old password">
+
+        <button type="submit">Update Email/Password</button>
+    </form>
+</div>
+
+<div class="card admin-panel" data-panel="semester">
+    <h3>Start New Semester</h3>
+    <form method="post" action="{{ url_for('start_new_semester') }}">
+        <label for="start_semester_id">Semester</label>
+        <select id="start_semester_id" name="semester_id" required>
+            <option value="">Select semester</option>
+            {% for sem in semesters %}
+                <option value="{{ sem.id }}">{{ sem.name }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit">Start Semester</button>
+    </form>
+    <form
+        method="post"
+        action="{{ url_for('clear_current_semester_data') }}"
+        onsubmit="return confirm('Clear attendance/session data for current semester?');"
+    >
+        <button type="submit" class="btn-secondary">Clear Current Semester Data</button>
+    </form>
+</div>
+
+<div class="card admin-panel" data-panel="semester">
+    <h3>Add Semester</h3>
+    <p>Semester list is fixed: Semester 1 to Semester 6.</p>
+    <button type="button" class="btn-secondary" disabled>Only 6 Semesters Allowed</button>
+</div>
+
+<div class="card admin-panel" data-panel="subject">
+    <h3>Subject Management</h3>
+    <form method="post" action="{{ url_for('add_subject') }}">
+        <label for="subject_name">Subject Name</label>
+        <input id="subject_name" name="name" required>
+
+        <label for="subject_sem">Semester</label>
+        <select id="subject_sem" name="semester_id" required>
+            <option value="">Select semester</option>
+            {% for sem in semesters %}
+                <option value="{{ sem.id }}">{{ sem.name }}</option>
+            {% endfor %}
+        </select>
+
+        <label><input type="checkbox" name="status" checked style="width:auto;"> Enabled</label>
+        <button type="submit">Add Subject</button>
+    </form>
+
+    <h3 style="margin-top: 16px;">Teacher-Subject Mapping</h3>
+    <form method="post" action="{{ url_for('assign_teacher_subject') }}" class="row">
+        <div>
+            <label for="map_teacher_id">Teacher ID</label>
+            <select id="map_teacher_id" name="teacher_id" required>
+                <option value="">Select teacher</option>
+                {% for teacher, user in teachers %}
+                    <option value="{{ teacher.id }}">{{ teacher.teacher_id }} - {{ user.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="map_subject_id">Subject</label>
+            <select id="map_subject_id" name="subject_id" required>
+                <option value="">Select subject</option>
+                {% for subject, semester in subjects %}
+                    <option value="{{ subject.id }}">{{ subject.name }} ({{ semester.name }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>&nbsp;</label>
+            <button type="submit">Assign Subject</button>
+        </div>
+    </form>
+</div>
+
+<div class="card admin-panel users-sub-panel" data-panel="users" data-user-panel="add-student">
+    <h3>Allow New Student Registration (Admin Add)</h3>
+    <form method="post" action="{{ url_for('admin_add_student') }}">
+        <div class="row">
+            <div>
+                <label for="stu_name">Name</label>
+                <input id="stu_name" name="name" required>
+            </div>
+            <div>
+                <label for="stu_email">Email</label>
+                <input id="stu_email" type="email" name="email" required>
+            </div>
+            <div>
+                <label for="stu_password">Password</label>
+                <input id="stu_password" type="password" name="password" required>
+            </div>
+            <div>
+                <label for="stu_roll">Roll Number</label>
+                <input id="stu_roll" name="roll_no" required>
+            </div>
+            <div>
+                <label for="stu_mobile">Mobile Number</label>
+                <input id="stu_mobile" name="mobile_no" placeholder="Optional">
+            </div>
+            <div>
+                <label for="stu_sem">Semester</label>
+                <select id="stu_sem" name="semester_id" required>
+                    <option value="">Select semester</option>
+                    {% for sem in semesters %}
+                        <option value="{{ sem.id }}">{{ sem.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label style="margin-top: 26px;"><input type="checkbox" name="verified" style="width:auto;" checked> Mark Verified</label>
+            </div>
+        </div>
+        <button type="submit">Add Student</button>
+    </form>
+</div>
+
+<div class="card admin-panel users-sub-panel" data-panel="users" data-user-panel="delete-data">
+    <h3>Delete Saved Data</h3>
+    <div class="row">
+        <form method="post" action="{{ url_for('admin_delete_student_by_roll') }}" onsubmit="return confirm('Delete student by roll number?');">
+            <label for="delete_roll">Delete Student By Roll No</label>
+            <input id="delete_roll" name="roll_no" placeholder="Enter exact roll number" required>
+            <button type="submit" class="btn-secondary">Delete Student</button>
+        </form>
+        <form method="post" action="{{ url_for('admin_delete_teacher_by_email') }}" onsubmit="return confirm('Delete teacher by email?');">
+            <label for="delete_teacher_email">Delete Teacher By Email</label>
+            <input id="delete_teacher_email" name="email" type="email" placeholder="Enter exact teacher email" required>
+            <button type="submit" class="btn-secondary">Delete Teacher</button>
+        </form>
+    </div>
+</div>
+
+<div class="card admin-panel" data-panel="subject">
+    <h3>Subject Enable / Disable</h3>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Subject</th>
+                    <th>Semester</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                    <th>Delete</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for subject, semester in subjects %}
+                    <tr>
+                        <td>{{ subject.name }}</td>
+                        <td>{{ semester.name }}</td>
+                        <td>
+                            {% if subject.status %}
+                                <span class="badge">Enabled</span>
+                            {% else %}
+                                <span class="badge badge-danger">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <form method="post" action="{{ url_for('toggle_subject', subject_id=subject.id) }}">
+                                <button type="submit" class="btn-secondary">
+                                    {{ "Disable" if subject.status else "Enable" }}
+                                </button>
+                            </form>
+                        </td>
+                        <td>
+                            <form method="post" action="{{ url_for('delete_subject', subject_id=subject.id) }}" onsubmit="return confirm('Delete this subject and related attendance data?');">
+                                <button type="submit" class="btn-secondary">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <h3 style="margin-top: 16px;">Mapped Teacher Subjects</h3>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Teacher ID</th>
+                    <th>Teacher Name</th>
+                    <th>Subject</th>
+                    <th>Semester</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for mapping, teacher, user, subject, semester in teacher_subject_mappings %}
+                    <tr>
+                        <td>{{ teacher.teacher_id }}</td>
+                        <td>{{ user.name }}</td>
+                        <td>{{ subject.name }}</td>
+                        <td>{{ semester.name }}</td>
+                        <td>
+                            <form method="post" action="{{ url_for('delete_teacher_subject_mapping', mapping_id=mapping.id) }}" onsubmit="return confirm('Remove this teacher-subject mapping?');">
+                                <button type="submit" class="btn-secondary">Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="5">No subject mapping found.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card admin-panel users-sub-panel" data-panel="users" data-user-panel="teachers">
+    <h3>Teachers</h3>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Teacher ID</th><th>Name</th><th>Email</th><th>Department</th><th>Last Login</th><th>Delete</th></tr></thead>
+            <tbody>
+                {% for teacher, user in teachers %}
+                    <tr>
+                        <td>{{ teacher.teacher_id }}</td>
+                        <td>{{ user.name }}</td>
+                        <td>{{ user.email }}</td>
+                        <td>{{ teacher.department }}</td>
+                        <td>{{ user.last_login_at if user.last_login_at else "-" }}</td>
+                        <td>
+                            <form method="post" action="{{ url_for('admin_delete_teacher', teacher_id=teacher.id) }}" onsubmit="return confirm('Delete this teacher and related session/attendance data?');">
+                                <button type="submit" class="btn-secondary">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="6">No teachers found.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card admin-panel users-sub-panel" data-panel="users" data-user-panel="students">
+    <h3>Students</h3>
+    <form method="get" class="row" style="margin-bottom: 10px;">
+        <div>
+            <label for="student_semester_id">Semester</label>
+            <select id="student_semester_id" name="student_semester_id">
+                <option value="">All</option>
+                {% for sem in semesters %}
+                    <option value="{{ sem.id }}" {% if sem.id == student_semester_id %}selected{% endif %}>{{ sem.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>&nbsp;</label>
+            <button type="submit">Show Students</button>
+        </div>
+    </form>
+    {% if students_semester_wise %}
+        {% for sem, sem_students in students_semester_wise %}
+            <h4 style="margin: 14px 0 8px;">{{ sem.name }} ({{ sem_students|length }})</h4>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Name</th><th>Roll</th><th>Email</th><th>Semester</th><th>Verified</th><th>Last Login</th><th>View</th><th>Delete</th></tr></thead>
+                    <tbody>
+                        {% for student, user, semester in sem_students %}
+                            <tr>
+                                <td>{{ user.name }}</td>
+                                <td>{{ student.roll_no }}</td>
+                                <td>{{ user.email }}</td>
+                                <td>{{ semester.name }}</td>
+                                <td>{{ "Yes" if student.verified else "No" }}</td>
+                                <td>{{ user.last_login_at if user.last_login_at else "-" }}</td>
+                                <td>
+                                    <button type="button" class="btn-secondary js-view-student" data-roll="{{ student.roll_no }}">View</button>
+                                </td>
+                                <td>
+                                    <form method="post" action="{{ url_for('admin_delete_student', student_id=student.id) }}" onsubmit="return confirm('Delete this student and attendance data?');">
+                                        <button type="submit" class="btn-secondary">Delete</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endfor %}
+    {% else %}
+        <p>No students found.</p>
+    {% endif %}
+</div>
+
+<div class="card admin-panel" data-panel="student-details" id="student-details">
+    <h3>Check Specific Student Details</h3>
+    <form id="student-details-form" method="get" class="row" style="margin-bottom: 12px;" action="{{ url_for('admin_dashboard') }}#student-details">
+        <div>
+            <label for="detail_roll">Roll Number</label>
+            <input id="detail_roll" name="detail_roll" value="{{ detail_roll }}" placeholder="Enter exact roll number">
+        </div>
+        <div>
+            <label>&nbsp;</label>
+            <button type="submit">Get Student Details</button>
+        </div>
+    </form>
+
+    <div id="student-details-result">
+        {% if detail_roll %}
+            {% if student_detail %}
+                <p>
+                    <b>Roll:</b> {{ student_detail_summary.roll_no }} |
+                    <b>Name:</b> {{ student_detail_summary.name }} |
+                    <b>Email:</b> {{ student_detail_summary.email }} |
+                    <b>Semester:</b> {{ student_detail_summary.semester }}
+                </p>
+                <p>
+                    <span class="badge">
+                        Present: {{ student_detail_summary.present }} / {{ student_detail_summary.total_sessions }} |
+                        Attendance: {{ student_detail_summary.percentage }}%
+                    </span>
+                </p>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Time</th>
+                                <th>Subject</th>
+                                <th>Status</th>
+                                <th>Latitude</th>
+                                <th>Longitude</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for att, subject in student_detail_records %}
+                                <tr>
+                                    <td>{{ att.date }}</td>
+                                    <td>{{ att.time }}</td>
+                                    <td>{{ subject.name }}</td>
+                                    <td>Verified</td>
+                                    <td>{{ att.latitude }}</td>
+                                    <td>{{ att.longitude }}</td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="6">No attendance records found for this student.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p>No student found for roll number <b>{{ detail_roll }}</b>.</p>
+            {% endif %}
+        {% endif %}
+    </div>
+</div>
+
+<div class="card admin-panel" data-panel="attendance">
+    <h3>Student Attendance Semester-wise</h3>
+    <div class="stats-grid">
+        <div class="stats-card stats-card-clickable" data-stats-action="attendance-all">
+            <p>Total Attendance Records</p>
+            <h4>{{ total_attendance_records }}</h4>
+        </div>
+        <div
+            class="stats-card stats-card-clickable"
+            data-stats-action="attendance-current-semester"
+            data-semester-id="{{ current_semester.id if current_semester else '' }}"
+        >
+            <p>Current Semester Attendance</p>
+            <h4>{{ current_semester_attendance_count }}</h4>
+        </div>
+        <div class="stats-card stats-card-clickable" data-stats-action="open-subject-panel">
+            <p>Enabled Subjects</p>
+            <h4>{{ enabled_subject_count }}</h4>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Semester</th>
+                    <th>Total Attendance Records</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sem_name, count in semester_attendance_summary %}
+                    <tr>
+                        <td>{{ sem_name }}</td>
+                        <td>{{ count }}</td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="2">No attendance records available.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card admin-panel" data-panel="attendance" id="attendance-filter">
+    <h3>Attendance Filter</h3>
+    <form id="attendance-filter-form" method="get" class="row-3" style="margin-bottom: 12px;" action="{{ url_for('admin_dashboard') }}#attendance-filter">
+        <div>
+            <label for="f_semester">Semester</label>
+            <select id="f_semester" name="semester_id">
+                <option value="">All</option>
+                {% for sem in semesters %}
+                    <option value="{{ sem.id }}" {% if sem.id == filter_semester %}selected{% endif %}>{{ sem.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="f_subject">Subject</label>
+            <select id="f_subject" name="subject_id">
+                <option value="">All</option>
+                {% for subject, semester in filtered_subjects %}
+                    <option value="{{ subject.id }}" {% if subject.id == filter_subject %}selected{% endif %}>{{ subject.name }} ({{ semester.name }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="f_roll">Roll No</label>
+            <input id="f_roll" name="roll_no" value="{{ filter_roll }}" placeholder="Exact roll no">
+        </div>
+        <div>
+            <button type="submit">Apply</button>
+        </div>
+    </form>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Student</th>
+                    <th>Roll</th>
+                    <th>Semester</th>
+                    <th>Subject</th>
+                    <th>Date</th>
+                    <th>Time</th>
+                    <th>Status</th>
+                    <th>Delete</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for att, subject, student, user, semester in attendance_records %}
+                    <tr
+                        data-attendance-row="1"
+                        data-semester-id="{{ semester.id }}"
+                        data-subject-id="{{ subject.id }}"
+                        data-roll="{{ student.roll_no }}"
+                    >
+                        <td>{{ user.name }}</td>
+                        <td>{{ student.roll_no }}</td>
+                        <td>{{ semester.name }}</td>
+                        <td>{{ subject.name }}</td>
+                        <td>{{ att.date }}</td>
+                        <td>{{ att.time }}</td>
+                        <td>
+                            <span class="badge">Auto Verified</span>
+                        </td>
+                        <td>
+                            <form method="post" action="{{ url_for('delete_student_attendance', attendance_id=att.id) }}" onsubmit="return confirm('Delete this attendance record?');">
+                                <button type="submit" class="btn-secondary">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="8">No attendance records match the filters.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card admin-panel" data-panel="report" id="percentage-report">
+    <h3>Attendance Percentage Report</h3>
+    <div class="stats-grid">
+        <div class="stats-card">
+            <p>Semester-wise Student Totals</p>
+            <div style="display: grid; gap: 2px; margin-top: 4px;">
+                {% for sem, count in report_semester_wise_counts %}
+                    <small>{{ sem.name }}: {{ count }}</small>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="stats-card stats-card-clickable" data-stats-action="report-75plus">
+            <p>Students >= 75%</p>
+            <h4>{{ report_above_75 }}</h4>
+        </div>
+        <div class="stats-card stats-card-clickable" data-stats-action="report-current-filter">
+            <p>Current Filter</p>
+            <h4>{{ report_semester_name }}</h4>
+        </div>
+    </div>
+    <form id="percentage-filter-form" method="get" class="row" style="margin-bottom: 12px;" action="{{ url_for('admin_dashboard') }}#percentage-report">
+        <div>
+            <label for="report_semester_id">Semester</label>
+            <select id="report_semester_id" name="report_semester_id">
+                <option value="">All Semesters</option>
+                {% for sem in semesters %}
+                    <option value="{{ sem.id }}" {% if sem.id == report_semester_id %}selected{% endif %}>{{ sem.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>&nbsp;</label>
+            <button type="submit">Get Students</button>
+        </div>
+    </form>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Student</th>
+                    <th>Roll No</th>
+                    <th>Semester</th>
+                    <th>Present</th>
+                    <th>Total Sessions</th>
+                    <th>Percentage</th>
+                    <th>Delete</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in percentage_report %}
+                    <tr data-semester-id="{{ item.semester_id }}" data-percentage="{{ item.percentage }}">
+                        <td>{{ item.name }}</td>
+                        <td>{{ item.roll_no }}</td>
+                        <td>{{ item.semester }}</td>
+                        <td>{{ item.present }}</td>
+                        <td>{{ item.total }}</td>
+                        <td>{{ item.percentage }}%</td>
+                        <td>
+                            <form method="post" action="{{ url_for('delete_percentage_report_data', student_id=item.student_id) }}" onsubmit="return confirm('Delete all attendance records for this student report?');">
+                                <button type="submit" class="btn-secondary">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="7">No report data available.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+<script>
+    (function () {
+        const navButtons = document.querySelectorAll(".admin-nav-btn");
+        const panels = document.querySelectorAll(".admin-panel");
+        const usersSubButtons = document.querySelectorAll(".users-sub-btn");
+        const usersSubPanels = document.querySelectorAll(".users-sub-panel");
+        const detailsForm = document.getElementById("student-details-form");
+        const detailsInput = document.getElementById("detail_roll");
+        const detailsResult = document.getElementById("student-details-result");
+        const viewButtons = document.querySelectorAll(".js-view-student");
+        const percentageForm = document.getElementById("percentage-filter-form");
+        const semesterSelect = document.getElementById("report_semester_id");
+        const percentageRows = document.querySelectorAll("#percentage-report tbody tr[data-semester-id]");
+        const attendanceForm = document.getElementById("attendance-filter-form");
+        const attendanceRows = document.querySelectorAll("#attendance-filter tbody tr[data-attendance-row]");
+        const attendanceSemesterSelect = document.getElementById("f_semester");
+        const attendanceSubjectSelect = document.getElementById("f_subject");
+        const attendanceRollInput = document.getElementById("f_roll");
+        const statsCards = document.querySelectorAll(".stats-card-clickable");
+        let currentUsersPanel = "students";
+
+        function showUsersPanel(panelName) {
+            currentUsersPanel = panelName || "students";
+            usersSubPanels.forEach((panel) => {
+                panel.style.display = panel.dataset.userPanel === currentUsersPanel ? "" : "none";
+            });
+            usersSubButtons.forEach((btn) => {
+                btn.classList.toggle("active", btn.dataset.target === currentUsersPanel);
+            });
+        }
+
+        function showPanel(panelName) {
+            panels.forEach((panel) => {
+                panel.style.display = panel.dataset.panel === panelName ? "" : "none";
+            });
+            navButtons.forEach((btn) => {
+                btn.classList.toggle("active", btn.dataset.target === panelName);
+            });
+            if (panelName === "users") {
+                showUsersPanel(currentUsersPanel);
+            }
+        }
+
+        usersSubButtons.forEach((btn) => {
+            btn.addEventListener("click", () => showUsersPanel(btn.dataset.target));
+        });
+        navButtons.forEach((btn) => {
+            btn.addEventListener("click", () => showPanel(btn.dataset.target));
+        });
+        showPanel("users");
+
+        async function loadStudentDetails(rollNo) {
+            const roll = (rollNo || "").trim().toUpperCase();
+            if (!roll) {
+                detailsResult.innerHTML = "<p>Please enter a roll number.</p>";
+                return;
+            }
+            try {
+                const res = await fetch(`/api/admin/student/details?roll_no=${encodeURIComponent(roll)}`);
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    detailsResult.innerHTML = `<p>${data.message || "Student not found."}</p>`;
+                    return;
+                }
+                const s = data.summary;
+                const rows = (data.records || []).map((r) => `
+                    <tr>
+                        <td>${r.date}</td>
+                        <td>${r.time}</td>
+                        <td>${r.subject}</td>
+                        <td>Verified</td>
+                        <td>${r.latitude}</td>
+                        <td>${r.longitude}</td>
+                    </tr>
+                `).join("");
+                detailsResult.innerHTML = `
+                    <p>
+                        <b>Roll:</b> ${s.roll_no} |
+                        <b>Name:</b> ${s.name} |
+                        <b>Email:</b> ${s.email} |
+                        <b>Semester:</b> ${s.semester}
+                    </p>
+                    <p>
+                        <span class="badge">
+                            Present: ${s.present} / ${s.total_sessions} |
+                            Attendance: ${s.percentage}%
+                        </span>
+                    </p>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Time</th>
+                                    <th>Subject</th>
+                                    <th>Status</th>
+                                    <th>Latitude</th>
+                                    <th>Longitude</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows || "<tr><td colspan='6'>No attendance records found for this student.</td></tr>"}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            } catch (err) {
+                detailsResult.innerHTML = "<p>Could not load student details right now.</p>";
+            }
+        }
+
+        if (detailsForm) {
+            detailsForm.addEventListener("submit", function (e) {
+                e.preventDefault();
+                showPanel("student-details");
+                loadStudentDetails(detailsInput ? detailsInput.value : "");
+            });
+        }
+
+        viewButtons.forEach((btn) => {
+            btn.addEventListener("click", function () {
+                const roll = this.dataset.roll || "";
+                if (detailsInput) detailsInput.value = roll;
+                showPanel("student-details");
+                loadStudentDetails(roll);
+            });
+        });
+
+        if (percentageForm) {
+            percentageForm.addEventListener("submit", function (e) {
+                e.preventDefault();
+                const semesterId = semesterSelect ? semesterSelect.value : "";
+                percentageRows.forEach((row) => {
+                    row.style.display = !semesterId || row.dataset.semesterId === semesterId ? "" : "none";
+                });
+            });
+        }
+
+        function applyAttendanceFilter() {
+            const semesterId = attendanceSemesterSelect ? attendanceSemesterSelect.value : "";
+            const subjectId = attendanceSubjectSelect ? attendanceSubjectSelect.value : "";
+            const rollNo = attendanceRollInput ? attendanceRollInput.value.trim().toUpperCase() : "";
+            attendanceRows.forEach((row) => {
+                const semesterMatch = !semesterId || row.dataset.semesterId === semesterId;
+                const subjectMatch = !subjectId || row.dataset.subjectId === subjectId;
+                const rollMatch = !rollNo || (row.dataset.roll || "").toUpperCase() === rollNo;
+                row.style.display = semesterMatch && subjectMatch && rollMatch ? "" : "none";
+            });
+        }
+
+        if (attendanceForm) {
+            attendanceForm.addEventListener("submit", function (e) {
+                e.preventDefault();
+                applyAttendanceFilter();
+            });
+        }
+
+        statsCards.forEach((card) => {
+            card.addEventListener("click", function () {
+                const action = this.dataset.statsAction;
+                if (action === "attendance-all") {
+                    showPanel("attendance");
+                    if (attendanceSemesterSelect) attendanceSemesterSelect.value = "";
+                    if (attendanceSubjectSelect) attendanceSubjectSelect.value = "";
+                    if (attendanceRollInput) attendanceRollInput.value = "";
+                    applyAttendanceFilter();
+                    return;
+                }
+                if (action === "attendance-current-semester") {
+                    showPanel("attendance");
+                    const semId = this.dataset.semesterId || "";
+                    if (attendanceSemesterSelect) attendanceSemesterSelect.value = semId;
+                    if (attendanceSubjectSelect) attendanceSubjectSelect.value = "";
+                    if (attendanceRollInput) attendanceRollInput.value = "";
+                    applyAttendanceFilter();
+                    return;
+                }
+                if (action === "open-subject-panel") {
+                    showPanel("subject");
+                    return;
+                }
+                if (action === "report-all") {
+                    showPanel("report");
+                    if (semesterSelect) semesterSelect.value = "";
+                    percentageRows.forEach((row) => {
+                        row.style.display = "";
+                    });
+                    return;
+                }
+                if (action === "report-75plus") {
+                    showPanel("report");
+                    percentageRows.forEach((row) => {
+                        const percentage = parseFloat(row.dataset.percentage || "0");
+                        row.style.display = percentage >= 75 ? "" : "none";
+                    });
+                    return;
+                }
+                if (action === "report-current-filter") {
+                    showPanel("report");
+                    if (percentageForm) {
+                        percentageForm.dispatchEvent(new Event("submit", { cancelable: true }));
+                    }
+                }
+            });
+        });
+    })();
+</script>
+{% endblock %}

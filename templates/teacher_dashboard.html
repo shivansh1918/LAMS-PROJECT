@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2>Teacher Dashboard</h2>
+    <p><b>Teacher:</b> {{ user.name }}</p>
+    <p><b>Teacher ID:</b> {{ teacher.teacher_id }}</p>
+    <p><b>Last Login:</b> {{ user.last_login_at if user.last_login_at else "First Login" }}</p>
+    <p>Start session captures your live location and opens attendance for matching semester/subject students.</p>
+</div>
+
+<div class="card">
+    <h3>Start Attendance Session</h3>
+    <label for="teacher_start_semester_id">Semester</label>
+    <select id="teacher_start_semester_id" onchange="loadTeacherSubjectsBySemester()">
+        <option value="">Select semester</option>
+        {% for sem in semesters %}
+            <option value="{{ sem.id }}">{{ sem.name }}</option>
+        {% endfor %}
+    </select>
+
+    <label for="subject_id">Subject</label>
+    <select id="subject_id" data-subject-map='{{ start_subject_map|tojson|safe }}'>
+        <option value="">Select semester first</option>
+    </select>
+    <button type="button" onclick="startTeacherSession()" style="margin-top: 8px;">Start Session with Current Location</button>
+</div>
+
+<div class="card">
+    <h3>Active Sessions</h3>
+    {% if active_sessions %}
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Subject</th>
+                        <th>Semester</th>
+                        <th>Start Time</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sess, subject, semester in active_sessions %}
+                        <tr>
+                            <td>{{ subject.name }}</td>
+                            <td>{{ semester.name }}</td>
+                            <td>{{ sess.start_time }}</td>
+                            <td><button type="button" class="btn-secondary" onclick="stopTeacherSession({{ sess.id }})">Stop</button></td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p>No active session.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3>Students (Semester-wise)</h3>
+    <form method="get" class="row" style="margin-bottom: 12px;">
+        <div>
+            <label for="student_semester_id">Semester</label>
+            <select id="student_semester_id" name="student_semester_id">
+                <option value="">All</option>
+                {% for sem in semesters %}
+                    <option value="{{ sem.id }}" {% if sem.id == student_filter_semester %}selected{% endif %}>{{ sem.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>&nbsp;</label>
+            <button type="submit">Show Students</button>
+        </div>
+    </form>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Roll No</th>
+                    <th>Email</th>
+                    <th>Semester</th>
+                    <th>Verified</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for student, student_user, sem in teacher_students %}
+                    <tr>
+                        <td>{{ student_user.name }}</td>
+                        <td>{{ student.roll_no }}</td>
+                        <td>{{ student_user.email }}</td>
+                        <td>{{ sem.name }}</td>
+                        <td>{{ "Yes" if student.verified else "No" }}</td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="5">No students found for selected semester.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Attendance Marked by Students (Semester-wise)</h3>
+    <form id="teacher-attendance-filter-form" method="get" class="row" style="margin-bottom: 12px;">
+        <div>
+            <label for="semester_id">Filter Semester</label>
+            <select id="semester_id" name="semester_id">
+                <option value="">All</option>
+                {% for sem in semesters %}
+                    <option value="{{ sem.id }}" {% if sem.id == filter_semester %}selected{% endif %}>{{ sem.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>&nbsp;</label>
+            <button type="submit">Apply Filter</button>
+        </div>
+    </form>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Student</th>
+                    <th>Roll No</th>
+                    <th>Semester</th>
+                    <th>Subject</th>
+                    <th>Date</th>
+                    <th>Time</th>
+                    <th>Verify</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for att, sess, subject, student, student_user, semester in attendance_records %}
+                    <tr data-attendance-row="1" data-semester-id="{{ semester.id }}">
+                        <td>{{ student_user.name }}</td>
+                        <td>{{ student.roll_no }}</td>
+                        <td>{{ semester.name }}</td>
+                        <td>{{ subject.name }}</td>
+                        <td>{{ att.date }}</td>
+                        <td>{{ att.time }}</td>
+                        <td>
+                            {% if att.teacher_verified %}
+                                <span class="badge">Verified</span>
+                            {% else %}
+                                <form method="post" action="{{ url_for('verify_teacher_marked_attendance', attendance_id=att.id) }}">
+                                    <button type="submit" class="btn-secondary">Verify</button>
+                                </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="7">No attendance records found.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+<script>
+(() => {
+    const semesterSelect = document.getElementById("teacher_start_semester_id");
+    const subjectSelect = document.getElementById("subject_id");
+    if (!semesterSelect || !subjectSelect) return;
+    let subjectMap = {};
+    try {
+        subjectMap = JSON.parse(subjectSelect.dataset.subjectMap || "{}");
+    } catch (e) {
+        subjectMap = {};
+    }
+
+    const render = (subjects) => {
+        subjectSelect.innerHTML = "";
+        subjectSelect.disabled = false;
+        if (!subjects || subjects.length === 0) {
+            subjectSelect.appendChild(new Option("No subjects available for selected semester", ""));
+            return;
+        }
+        subjectSelect.appendChild(new Option("Select subject", ""));
+        subjects.forEach((s) => subjectSelect.appendChild(new Option(s.name, String(s.id))));
+    };
+
+    async function loadSubjects() {
+        const semesterId = semesterSelect.value;
+        if (!semesterId) {
+            subjectSelect.disabled = false;
+            subjectSelect.innerHTML = "";
+            subjectSelect.appendChild(new Option("Select semester first", ""));
+            return;
+        }
+
+        const fallbackSubjects = subjectMap[String(semesterId)] || [];
+        render(fallbackSubjects);
+
+        try {
+            const res = await fetch(`/api/teacher/subjects?semester_id=${encodeURIComponent(semesterId)}&_ts=${Date.now()}`, { cache: "no-store" });
+            const contentType = res.headers.get("content-type") || "";
+            if (!contentType.includes("application/json")) {
+                return;
+            }
+            const data = await res.json();
+            if (res.ok && data.success && Array.isArray(data.subjects)) {
+                render(data.subjects);
+            }
+        } catch (e) {
+            // Keep fallback subjects already rendered.
+        }
+    }
+
+    semesterSelect.addEventListener("change", loadSubjects);
+    window.loadTeacherSubjectsBySemester = loadSubjects;
+    loadSubjects();
+})();
+
+(() => {
+    const form = document.getElementById("teacher-attendance-filter-form");
+    const semesterSelect = document.getElementById("semester_id");
+    const rows = document.querySelectorAll("tr[data-attendance-row='1']");
+    if (!form || !semesterSelect || !rows.length) return;
+
+    const applyFilter = () => {
+        // Client-side filtering prevents page jump/reload on Apply Filter.
+        const semesterId = semesterSelect.value;
+        rows.forEach((row) => {
+            row.style.display = !semesterId || row.dataset.semesterId === semesterId ? "" : "none";
+        });
+    };
+
+    form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        applyFilter();
+    });
+})();
+</script>
+{% endblock %}

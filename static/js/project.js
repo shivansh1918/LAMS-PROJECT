@@ -1,0 +1,235 @@
+function getCurrentPositionOnce(options) {
+    return new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, options);
+    });
+}
+
+function initGmailUsernameFields() {
+    const forms = document.querySelectorAll("form");
+    forms.forEach((form) => {
+        const usernameInput = form.querySelector("[data-email-username]");
+        const hiddenEmailInput = form.querySelector("[data-email-hidden]");
+        if (!usernameInput || !hiddenEmailInput) return;
+
+        const syncEmail = () => {
+            let username = (usernameInput.value || "").trim().toLowerCase();
+            if (username.includes("@")) {
+                username = username.split("@")[0];
+            }
+            username = username.replace(/\s+/g, "");
+            usernameInput.value = username;
+            hiddenEmailInput.value = username ? `${username}@gmail.com` : "";
+        };
+
+        // Keep @gmail.com fixed by storing final email only in hidden field.
+        usernameInput.addEventListener("input", syncEmail);
+        usernameInput.addEventListener("blur", syncEmail);
+        form.addEventListener("submit", (e) => {
+            syncEmail();
+            if (!hiddenEmailInput.value) {
+                e.preventDefault();
+                alert("Please enter your email username.");
+            }
+        });
+        syncEmail();
+    });
+}
+
+function waitMs(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getCurrentLocation() {
+    if (!navigator.geolocation) {
+        throw new Error("Geolocation is not supported by this browser.");
+    }
+    if (!window.isSecureContext) {
+        throw new Error(
+            "Location is blocked on insecure pages. Open the app on localhost/127.0.0.1 or HTTPS."
+        );
+    }
+
+    const attempts = [
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
+        { enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 },
+        { enableHighAccuracy: false, timeout: 30000, maximumAge: Infinity },
+    ];
+
+    let lastError = null;
+    for (const options of attempts) {
+        for (let retry = 0; retry < 2; retry += 1) {
+            try {
+                const position = await getCurrentPositionOnce(options);
+                return {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                    accuracy: position.coords.accuracy || 0,
+                };
+            } catch (error) {
+                lastError = error;
+                if (error && error.code === 1) {
+                    throw error;
+                }
+                if (retry === 0) {
+                    await waitMs(700);
+                }
+            }
+        }
+    }
+    throw lastError || new Error("Unable to capture location.");
+}
+
+function describeLocationOrNetworkError(error) {
+    if (!error) return "Unable to capture location or connect to server.";
+    if (typeof error.code === "number") {
+        if (error.code === 1) {
+            return "Location permission denied. Please allow location access for 127.0.0.1 in browser site settings.";
+        }
+        if (error.code === 2) {
+            return "Live location is unavailable. Turn on device Location Services (GPS), then retry.";
+        }
+        if (error.code === 3) {
+            return "Location request timed out. Please retry after enabling GPS/location services.";
+        }
+    }
+    if (error instanceof TypeError) {
+        return "Could not connect to server. Check internet/VPN and try again.";
+    }
+    if (error.message) return error.message;
+    return "Unable to capture location or connect to server.";
+}
+
+async function parseApiResponse(response) {
+    if (response.redirected && response.url && response.url.includes("/login")) {
+        return {
+            success: false,
+            message: "Your session has expired. Please login again and retry.",
+            sessionExpired: true,
+        };
+    }
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+        return response.json();
+    }
+    const text = await response.text();
+    if (text && /<title>\s*Login|name=\"email\"|name=\"password\"/i.test(text)) {
+        return {
+            success: false,
+            message: "Your session has expired. Please login again and retry.",
+            sessionExpired: true,
+        };
+    }
+    return { success: false, message: text || "Unexpected server response." };
+}
+
+async function startTeacherSession() {
+    const subjectSelect = document.getElementById("subject_id");
+    const subjectId = subjectSelect ? subjectSelect.value : "";
+
+    if (!subjectId) {
+        alert("Please select a subject first.");
+        return;
+    }
+
+    const payload = { subject_id: Number(subjectId) };
+    try {
+        // GPS is mandatory for teacher session start; abort if permission/location fails.
+        const location = await getCurrentLocation();
+        if (
+            !Number.isFinite(location.latitude) ||
+            !Number.isFinite(location.longitude) ||
+            location.latitude < -90 ||
+            location.latitude > 90 ||
+            location.longitude < -180 ||
+            location.longitude > 180
+        ) {
+            alert("Could not get valid GPS coordinates. Please enable location and try again.");
+            return;
+        }
+        payload.latitude = location.latitude;
+        payload.longitude = location.longitude;
+        payload.accuracy = location.accuracy;
+    } catch (error) {
+        alert(describeLocationOrNetworkError(error));
+        return;
+    }
+
+    try {
+        const response = await fetch("/api/teacher/session/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+
+        const data = await parseApiResponse(response);
+        alert(data.message);
+        if (response.ok && data.success) {
+            window.location.reload();
+        }
+    } catch (error) {
+        alert("Could not connect to server. Check internet/VPN and try again.");
+    }
+}
+
+async function stopTeacherSession(sessionId) {
+    try {
+        const response = await fetch(`/api/teacher/session/stop/${sessionId}`, {
+            method: "POST",
+        });
+        const data = await parseApiResponse(response);
+        alert(data.message);
+        if (response.ok && data.success) {
+            window.location.reload();
+        }
+    } catch (error) {
+        alert("Could not stop session right now.");
+    }
+}
+
+function setMarkedAttendanceButton(buttonEl) {
+    if (!buttonEl) return;
+    buttonEl.disabled = true;
+    buttonEl.textContent = "Marked";
+    buttonEl.classList.remove("btn-secondary");
+    buttonEl.classList.add("btn-marked");
+    buttonEl.removeAttribute("onclick");
+}
+
+async function markAttendance(sessionId, buttonEl) {
+    const payload = { session_id: Number(sessionId) };
+    try {
+        const location = await getCurrentLocation();
+        payload.latitude = location.latitude;
+        payload.longitude = location.longitude;
+        payload.accuracy = location.accuracy;
+    } catch (error) {
+        alert(describeLocationOrNetworkError(error));
+        return;
+    }
+
+    try {
+        const response = await fetch("/api/student/attendance/mark", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+
+        const data = await parseApiResponse(response);
+        alert(data.message);
+        if (response.ok && data.success) {
+            setMarkedAttendanceButton(buttonEl);
+            if (data.already_marked) {
+                return;
+            }
+            // Keep UI consistent if page is not reloaded immediately.
+            const sessionButtons = document.querySelectorAll(`[data-session-id="${sessionId}"]`);
+            sessionButtons.forEach((btn) => setMarkedAttendanceButton(btn));
+        }
+    } catch (error) {
+        alert("Could not connect to server. Check internet/VPN and try again.");
+    }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    initGmailUsernameFields();
+});
