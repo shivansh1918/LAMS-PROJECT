@@ -1314,7 +1314,6 @@ def admin_dashboard():
 
     student_detail = None
     student_detail_summary = None
-    student_detail_records = []
     if detail_roll:
         student_detail = (
             db.session.query(Student, User, Semester)
@@ -1336,19 +1335,10 @@ def admin_dashboard():
             student_detail_summary = {
                 "name": usr.name,
                 "roll_no": stu.roll_no,
-                "email": usr.email,
                 "semester": sem.name,
                 "present": present,
-                "total_sessions": total_sessions,
                 "percentage": percentage,
             }
-            student_detail_records = (
-                db.session.query(Attendance, Subject)
-                .join(Subject, Subject.id == Attendance.subject_id)
-                .filter(Attendance.student_id == stu.id)
-                .order_by(Attendance.date.desc(), Attendance.time.desc())
-                .all()
-            )
 
     percentage_students_query = (
         db.session.query(Student, User, Semester)
@@ -1441,7 +1431,6 @@ def admin_dashboard():
         semester_attendance_summary=semester_attendance_summary,
         student_detail=student_detail,
         student_detail_summary=student_detail_summary,
-        student_detail_records=student_detail_records,
         percentage_report=percentage_report,
         filter_semester=filter_semester,
         filter_subject=filter_subject,
@@ -1884,36 +1873,16 @@ def api_admin_student_details():
     present = Attendance.query.filter_by(student_id=stu.id).count()
     percentage = round((present / total_sessions) * 100, 2) if total_sessions else 0
 
-    records = (
-        db.session.query(Attendance, Subject)
-        .join(Subject, Subject.id == Attendance.subject_id)
-        .filter(Attendance.student_id == stu.id)
-        .order_by(Attendance.date.desc(), Attendance.time.desc())
-        .all()
-    )
-
     return jsonify(
         {
             "success": True,
             "summary": {
                 "roll_no": stu.roll_no,
                 "name": usr.name,
-                "email": usr.email,
                 "semester": sem.name,
-                "present": present,
-                "total_sessions": total_sessions,
                 "percentage": percentage,
+                "attended_sessions": present,
             },
-            "records": [
-                {
-                    "date": str(att.date),
-                    "time": str(att.time),
-                    "subject": subject.name,
-                    "latitude": att.latitude,
-                    "longitude": att.longitude,
-                }
-                for att, subject in records
-            ],
         }
     )
 

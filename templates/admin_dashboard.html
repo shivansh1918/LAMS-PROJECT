@@ -13,7 +13,6 @@
     <button type="button" class="admin-nav-btn" data-target="subject">Subjects</button>
     <button type="button" class="admin-nav-btn" data-target="users">Users</button>
     <button type="button" class="admin-nav-btn" data-target="student-details">Student Details</button>
-    <button type="button" class="admin-nav-btn" data-target="attendance">Attendance</button>
     <button type="button" class="admin-nav-btn" data-target="report">Report</button>
 </div>
 
@@ -354,202 +353,17 @@
     <div id="student-details-result">
         {% if detail_roll %}
             {% if student_detail %}
-                <p>
-                    <b>Roll:</b> {{ student_detail_summary.roll_no }} |
-                    <b>Name:</b> {{ student_detail_summary.name }} |
-                    <b>Email:</b> {{ student_detail_summary.email }} |
-                    <b>Semester:</b> {{ student_detail_summary.semester }}
-                </p>
-                <p>
-                    <span class="badge">
-                        Present: {{ student_detail_summary.present }} / {{ student_detail_summary.total_sessions }} |
-                        Attendance: {{ student_detail_summary.percentage }}%
-                    </span>
-                </p>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Time</th>
-                                <th>Subject</th>
-                                <th>Status</th>
-                                <th>Latitude</th>
-                                <th>Longitude</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for att, subject in student_detail_records %}
-                                <tr>
-                                    <td>{{ att.date }}</td>
-                                    <td>{{ att.time }}</td>
-                                    <td>{{ subject.name }}</td>
-                                    <td>Verified</td>
-                                    <td>{{ att.latitude }}</td>
-                                    <td>{{ att.longitude }}</td>
-                                </tr>
-                            {% else %}
-                                <tr><td colspan="6">No attendance records found for this student.</td></tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                <div class="card" style="margin-top: 10px;">
+                    <p><b>Student Name:</b> {{ student_detail_summary.name }}</p>
+                    <p><b>Roll Number:</b> {{ student_detail_summary.roll_no }}</p>
+                    <p><b>Semester:</b> {{ student_detail_summary.semester }}</p>
+                    <p><b>Total Attended Sessions:</b> {{ student_detail_summary.present }}</p>
+                    <p><b>Attendance Percentage:</b> {{ student_detail_summary.percentage }}%</p>
                 </div>
             {% else %}
                 <p>No student found for roll number <b>{{ detail_roll }}</b>.</p>
             {% endif %}
         {% endif %}
-    </div>
-</div>
-
-<div class="card admin-panel" data-panel="attendance">
-    <h3>Student Attendance Semester-wise</h3>
-    <div class="stats-grid">
-        <div class="stats-card stats-card-clickable" data-stats-action="attendance-all">
-            <p>Total Attendance Records</p>
-            <h4>{{ total_attendance_records }}</h4>
-        </div>
-        <div
-            class="stats-card stats-card-clickable"
-            data-stats-action="attendance-current-semester"
-            data-semester-id="{{ current_semester.id if current_semester else '' }}"
-        >
-            <p>Current Semester Attendance</p>
-            <h4>{{ current_semester_attendance_count }}</h4>
-        </div>
-        <div class="stats-card stats-card-clickable" data-stats-action="open-subject-panel">
-            <p>Enabled Subjects</p>
-            <h4>{{ enabled_subject_count }}</h4>
-        </div>
-    </div>
-    <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>Semester</th>
-                    <th>Total Attendance Records</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for sem_name, count in semester_attendance_summary %}
-                    <tr>
-                        <td>{{ sem_name }}</td>
-                        <td>{{ count }}</td>
-                    </tr>
-                {% else %}
-                    <tr><td colspan="2">No attendance records available.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<div class="card admin-panel" data-panel="attendance" id="attendance-filter">
-    <h3>Attendance Filter</h3>
-    <form id="attendance-filter-form" method="get" class="row-3" style="margin-bottom: 12px;" action="{{ url_for('admin_dashboard') }}#attendance-filter">
-        <div>
-            <label for="f_semester">Semester</label>
-            <select id="f_semester" name="semester_id">
-                <option value="">All</option>
-                {% for sem in semesters %}
-                    <option value="{{ sem.id }}" {% if sem.id == filter_semester %}selected{% endif %}>{{ sem.name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div>
-            <label for="f_subject">Subject</label>
-            <select id="f_subject" name="subject_id">
-                <option value="">All</option>
-                {% for subject, semester in filtered_subjects %}
-                    <option value="{{ subject.id }}" {% if subject.id == filter_subject %}selected{% endif %}>{{ subject.name }} ({{ semester.name }})</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div>
-            <label for="f_roll">Roll No</label>
-            <input id="f_roll" name="roll_no" value="{{ filter_roll }}" placeholder="Exact roll no">
-        </div>
-        <div>
-            <label for="f_date_display">Date</label>
-            <input id="f_date" name="attendance_date" type="hidden" value="{{ attendance_date_iso }}">
-            <input id="f_date_display" type="text" inputmode="numeric" autocomplete="off" placeholder="DD/MM/YYYY" value="{{ attendance_date_display }}">
-            <div class="row" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
-                <button id="f_date_open" type="button" class="btn-secondary">Pick</button>
-                <button id="f_date_clear" type="button" class="btn-secondary">Clear</button>
-            </div>
-            <input id="f_date_picker" type="date" value="{{ attendance_date_iso }}" style="position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none;">
-        </div>
-        <div>
-            <button type="submit">Apply</button>
-        </div>
-    </form>
-
-    <div class="card" style="margin-top: 12px;">
-        <h3 style="margin-top: 0;">Calendar View</h3>
-        <p id="admin-calendar-stats" class="badge" style="display: inline-block;">Select semester + date to view present/absent.</p>
-        <div class="table-wrap" style="margin-top: 10px;">
-            <table id="admin-calendar-table">
-                <thead>
-                    <tr>
-                        <th>Student</th>
-                        <th>Roll</th>
-                        <th>Semester</th>
-                        <th>Status</th>
-                        <th>Details</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr><td colspan="5">Select semester + date.</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>Student</th>
-                    <th>Roll</th>
-                    <th>Semester</th>
-                    <th>Subject</th>
-                    <th>Date</th>
-                    <th>Time</th>
-                    <th>Status</th>
-                    <th>Delete</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for att, subject, student, user, semester in attendance_records %}
-                    <tr
-                        data-attendance-row="1"
-                        data-semester-id="{{ semester.id }}"
-                        data-subject-id="{{ subject.id }}"
-                        data-roll="{{ student.roll_no }}"
-                        data-date="{{ att.date }}"
-                        data-time="{{ att.time }}"
-                        data-subject="{{ subject.name }}"
-                        data-student="{{ user.name }}"
-                    >
-                        <td>{{ user.name }}</td>
-                        <td>{{ student.roll_no }}</td>
-                        <td>{{ semester.name }}</td>
-                        <td>{{ subject.name }}</td>
-                        <td>{{ att.date }}</td>
-                        <td>{{ att.time }}</td>
-                        <td>
-                            <span class="badge">Auto Verified</span>
-                        </td>
-                        <td>
-                            <form method="post" action="{{ url_for('delete_student_attendance', attendance_id=att.id) }}" data-ajax-action="1" data-ajax-remove-closest="tr" onsubmit="return confirm('Delete this attendance record?');">
-                                <button type="submit" class="btn-secondary">Delete</button>
-                            </form>
-                        </td>
-                    </tr>
-                {% else %}
-                    <tr><td colspan="8">No attendance records match the filters.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
     </div>
 </div>
 
@@ -643,18 +457,6 @@
         const percentageRows = document.querySelectorAll("#percentage-report tbody tr[data-semester-id]");
         const toggleSubjectListBtn = document.getElementById("toggle-subject-list");
         const subjectListWrap = document.getElementById("subject-list-wrap");
-        const attendanceForm = document.getElementById("attendance-filter-form");
-        const attendanceRows = document.querySelectorAll("#attendance-filter tbody tr[data-attendance-row]");
-        const attendanceSemesterSelect = document.getElementById("f_semester");
-        const attendanceSubjectSelect = document.getElementById("f_subject");
-        const attendanceRollInput = document.getElementById("f_roll");
-        const attendanceDateHidden = document.getElementById("f_date");
-        const attendanceDateDisplay = document.getElementById("f_date_display");
-        const attendanceDatePicker = document.getElementById("f_date_picker");
-        const attendanceDateOpen = document.getElementById("f_date_open");
-        const attendanceDateClear = document.getElementById("f_date_clear");
-        const calendarStats = document.getElementById("admin-calendar-stats");
-        const calendarTable = document.getElementById("admin-calendar-table");
         const statsCards = document.querySelectorAll(".stats-card-clickable");
         let currentUsersPanel = "students";
 
@@ -719,45 +521,13 @@
                     return;
                 }
                 const s = data.summary;
-                const rows = (data.records || []).map((r) => `
-                    <tr>
-                        <td>${r.date}</td>
-                        <td>${r.time}</td>
-                        <td>${r.subject}</td>
-                        <td>Verified</td>
-                        <td>${r.latitude}</td>
-                        <td>${r.longitude}</td>
-                    </tr>
-                `).join("");
                 detailsResult.innerHTML = `
-                    <p>
-                        <b>Roll:</b> ${s.roll_no} |
-                        <b>Name:</b> ${s.name} |
-                        <b>Email:</b> ${s.email} |
-                        <b>Semester:</b> ${s.semester}
-                    </p>
-                    <p>
-                        <span class="badge">
-                            Present: ${s.present} / ${s.total_sessions} |
-                            Attendance: ${s.percentage}%
-                        </span>
-                    </p>
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Time</th>
-                                    <th>Subject</th>
-                                    <th>Status</th>
-                                    <th>Latitude</th>
-                                    <th>Longitude</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${rows || "<tr><td colspan='6'>No attendance records found for this student.</td></tr>"}
-                            </tbody>
-                        </table>
+                    <div class="card" style="margin-top: 10px;">
+                        <p><b>Student Name:</b> ${s.name}</p>
+                        <p><b>Roll Number:</b> ${s.roll_no}</p>
+                        <p><b>Semester:</b> ${s.semester}</p>
+                        <p><b>Total Attended Sessions:</b> ${s.attended_sessions}</p>
+                        <p><b>Attendance Percentage:</b> ${s.percentage}%</p>
                     </div>
                 `;
             } catch (err) {
@@ -792,238 +562,9 @@
                 applyPercentageHighlight();
             });
         }
-
-        function applyAttendanceFilter() {
-            const semesterId = attendanceSemesterSelect ? attendanceSemesterSelect.value : "";
-            const subjectId = attendanceSubjectSelect ? attendanceSubjectSelect.value : "";
-            const rollNo = attendanceRollInput ? attendanceRollInput.value.trim().toUpperCase() : "";
-            const dateIso = attendanceDateHidden ? (attendanceDateHidden.value || "").trim() : "";
-            attendanceRows.forEach((row) => {
-                const semesterMatch = !semesterId || row.dataset.semesterId === semesterId;
-                const subjectMatch = !subjectId || row.dataset.subjectId === subjectId;
-                const rollMatch = !rollNo || (row.dataset.roll || "").toUpperCase() === rollNo;
-                const dateMatch = !dateIso || row.dataset.date === dateIso;
-                row.style.display = semesterMatch && subjectMatch && rollMatch && dateMatch ? "" : "none";
-            });
-        }
-
-        if (attendanceForm) {
-            attendanceForm.addEventListener("submit", function (e) {
-                e.preventDefault();
-                applyAttendanceFilter();
-                renderCalendarView();
-            });
-        }
-
-        function pad2(n) {
-            return String(n).padStart(2, "0");
-        }
-        function isoToDisplay(iso) {
-            const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
-            if (!m) return "";
-            return `${m[3]}/${m[2]}/${m[1]}`;
-        }
-        function displayToIso(value) {
-            const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((value || "").trim());
-            if (!m) return null;
-            const dd = Number(m[1]);
-            const mm = Number(m[2]);
-            const yyyy = Number(m[3]);
-            if (!yyyy || mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
-            const candidate = new Date(Date.UTC(yyyy, mm - 1, dd));
-            if (
-                candidate.getUTCFullYear() !== yyyy ||
-                candidate.getUTCMonth() !== mm - 1 ||
-                candidate.getUTCDate() !== dd
-            ) {
-                return null;
-            }
-            return `${yyyy}-${pad2(mm)}-${pad2(dd)}`;
-        }
-        function submitAttendanceFilter() {
-            if (!attendanceForm) return;
-            if (typeof attendanceForm.requestSubmit === "function") {
-                attendanceForm.requestSubmit();
-            } else {
-                attendanceForm.dispatchEvent(new Event("submit", { cancelable: true }));
-            }
-        }
-        function syncDateFromPicker() {
-            if (!attendanceDateHidden || !attendanceDatePicker || !attendanceDateDisplay) return;
-            attendanceDateHidden.value = attendanceDatePicker.value;
-            attendanceDateDisplay.value = isoToDisplay(attendanceDatePicker.value);
-        }
-
-        if (attendanceDateHidden && attendanceDateDisplay && attendanceDatePicker && attendanceDateOpen && attendanceDateClear) {
-            if (!attendanceDateDisplay.value) {
-                attendanceDateDisplay.value = isoToDisplay(attendanceDateHidden.value);
-            }
-            if (!attendanceDatePicker.value) {
-                attendanceDatePicker.value = attendanceDateHidden.value;
-            }
-
-            attendanceDateOpen.addEventListener("click", () => {
-                if (typeof attendanceDatePicker.showPicker === "function") {
-                    attendanceDatePicker.showPicker();
-                } else {
-                    attendanceDatePicker.click();
-                }
-            });
-
-            attendanceDateClear.addEventListener("click", () => {
-                attendanceDateHidden.value = "";
-                attendanceDateDisplay.value = "";
-                attendanceDatePicker.value = "";
-                submitAttendanceFilter();
-            });
-
-            attendanceDatePicker.addEventListener("change", () => {
-                syncDateFromPicker();
-                submitAttendanceFilter();
-            });
-
-            attendanceDateDisplay.addEventListener("change", () => {
-                const iso = displayToIso(attendanceDateDisplay.value);
-                if (!iso) {
-                    attendanceDateDisplay.value = isoToDisplay(attendanceDateHidden.value);
-                    return;
-                }
-                attendanceDateHidden.value = iso;
-                attendanceDatePicker.value = iso;
-                submitAttendanceFilter();
-            });
-        }
-
-        const roster = {{ admin_students_roster|tojson|safe }};
-
-        function renderCalendarView() {
-            if (!calendarTable || !calendarStats) return;
-            const semesterId = attendanceSemesterSelect ? attendanceSemesterSelect.value : "";
-            const subjectId = attendanceSubjectSelect ? attendanceSubjectSelect.value : "";
-            const rollNo = attendanceRollInput ? attendanceRollInput.value.trim().toUpperCase() : "";
-            const dateIso = attendanceDateHidden ? (attendanceDateHidden.value || "").trim() : "";
-
-            const tbody = calendarTable.querySelector("tbody");
-            if (!tbody) return;
-
-            if (!semesterId || !dateIso) {
-                calendarStats.textContent = "Select semester + date to view present/absent.";
-                tbody.innerHTML = "<tr><td colspan='5'>Select semester + date.</td></tr>";
-                return;
-            }
-
-            const recordsByRoll = new Map();
-            attendanceRows.forEach((row) => {
-                if (row.dataset.date !== dateIso) return;
-                if (row.dataset.semesterId !== semesterId) return;
-                if (subjectId && row.dataset.subjectId !== subjectId) return;
-                if (rollNo && (row.dataset.roll || '').toUpperCase() !== rollNo) return;
-                const key = (row.dataset.roll || "").toUpperCase();
-                if (!key) return;
-                const list = recordsByRoll.get(key) || [];
-                list.push({
-                    subject: row.dataset.subject || "",
-                    time: row.dataset.time || "",
-                });
-                recordsByRoll.set(key, list);
-            });
-
-            const studentsInSemester = roster.filter((s) => String(s.semester_id) === String(semesterId));
-            const filteredStudents = rollNo ? studentsInSemester.filter((s) => (s.roll_no || "").toUpperCase() === rollNo) : studentsInSemester;
-
-            let presentCount = 0;
-            let absentCount = 0;
-            tbody.innerHTML = "";
-
-            const sorted = filteredStudents.slice().sort((a, b) => String(a.roll_no).localeCompare(String(b.roll_no)));
-            sorted.forEach((s) => {
-                const records = recordsByRoll.get((s.roll_no || "").toUpperCase()) || [];
-                const isPresent = records.length > 0;
-                if (isPresent) presentCount += 1;
-                else absentCount += 1;
-
-                const tr = document.createElement("tr");
-                const tdName = document.createElement("td");
-                tdName.textContent = s.name || "";
-                const tdRoll = document.createElement("td");
-                tdRoll.textContent = s.roll_no || "";
-                const tdSem = document.createElement("td");
-                tdSem.textContent = s.semester || "";
-                const tdStatus = document.createElement("td");
-                const statusSpan = document.createElement("span");
-                statusSpan.className = isPresent ? "badge" : "badge badge-danger";
-                statusSpan.textContent = isPresent ? "Present" : "Absent";
-                tdStatus.appendChild(statusSpan);
-
-                const tdDetails = document.createElement("td");
-                if (records.length) {
-                    const ul = document.createElement("ul");
-                    ul.className = "tiny-list";
-                    records.forEach((r) => {
-                        const li = document.createElement("li");
-                        li.textContent = `${r.subject} (${r.time})`;
-                        ul.appendChild(li);
-                    });
-                    tdDetails.appendChild(ul);
-                } else {
-                    tdDetails.textContent = "No attendance recorded";
-                }
-
-                tr.appendChild(tdName);
-                tr.appendChild(tdRoll);
-                tr.appendChild(tdSem);
-                tr.appendChild(tdStatus);
-                tr.appendChild(tdDetails);
-                tbody.appendChild(tr);
-            });
-
-            calendarStats.textContent = `${presentCount} present · ${absentCount} absent out of ${presentCount + absentCount} students.`;
-        }
-
-        // Keep calendar + table filters responsive without navigation.
-        [attendanceSemesterSelect, attendanceSubjectSelect].forEach((el) => {
-            if (!el) return;
-            el.addEventListener("change", () => submitAttendanceFilter());
-        });
-        if (attendanceRollInput) {
-            attendanceRollInput.addEventListener("input", () => {
-                // Debounce lightly to avoid typing lag.
-                window.clearTimeout(attendanceRollInput._t);
-                attendanceRollInput._t = window.setTimeout(() => submitAttendanceFilter(), 250);
-            });
-        }
-
-        renderCalendarView();
-
         statsCards.forEach((card) => {
             card.addEventListener("click", function () {
                 const action = this.dataset.statsAction;
-                if (action === "attendance-all") {
-                    showPanel("attendance");
-                    if (attendanceSemesterSelect) attendanceSemesterSelect.value = "";
-                    if (attendanceSubjectSelect) attendanceSubjectSelect.value = "";
-                    if (attendanceRollInput) attendanceRollInput.value = "";
-                    if (attendanceDateHidden) attendanceDateHidden.value = "";
-                    if (attendanceDateDisplay) attendanceDateDisplay.value = "";
-                    if (attendanceDatePicker) attendanceDatePicker.value = "";
-                    applyAttendanceFilter();
-                    renderCalendarView();
-                    return;
-                }
-                if (action === "attendance-current-semester") {
-                    showPanel("attendance");
-                    const semId = this.dataset.semesterId || "";
-                    if (attendanceSemesterSelect) attendanceSemesterSelect.value = semId;
-                    if (attendanceSubjectSelect) attendanceSubjectSelect.value = "";
-                    if (attendanceRollInput) attendanceRollInput.value = "";
-                    applyAttendanceFilter();
-                    renderCalendarView();
-                    return;
-                }
-                if (action === "open-subject-panel") {
-                    showPanel("subject");
-                    return;
-                }
                 if (action === "report-all") {
                     showPanel("report");
                     if (semesterSelect) semesterSelect.value = "";
