@@ -4,7 +4,7 @@
     <h2>Admin Dashboard</h2>
     <p>Manage semesters, subjects, users and attendance reports.</p>
     <p><span class="badge">Current Semester: {{ current_semester.name if current_semester else "Not Set" }}</span></p>
-    <p><span class="badge">Last Login: {{ admin_user.last_login_at if admin_user and admin_user.last_login_at else "First Login" }}</span></p>
+    <p><span class="badge">Last Login: {{ admin_user.last_login_at|fmt_last_login if admin_user and admin_user.last_login_at else "First Login" }}</span></p>
 </div>
 
 <div class="card admin-toolbar">
@@ -40,7 +40,7 @@
 
 <div class="card admin-panel" data-panel="account">
     <h3>Admin Account</h3>
-    <form method="post" action="{{ url_for('update_admin_account') }}">
+    <form method="post" action="{{ url_for('update_admin_account') }}" data-ajax-action="1" data-ajax-success-message="Admin account updated.">
         <label for="admin_email">New Email</label>
         <input id="admin_email" type="email" name="email" value="{{ admin_user.email if admin_user else '' }}" required>
 
@@ -56,7 +56,7 @@
 
 <div class="card admin-panel" data-panel="semester">
     <h3>Start New Semester</h3>
-    <form method="post" action="{{ url_for('start_new_semester') }}">
+    <form method="post" action="{{ url_for('start_new_semester') }}" data-ajax-action="1" data-ajax-success-message="New semester started. Refresh to see updated lists.">
         <label for="start_semester_id">Semester</label>
         <select id="start_semester_id" name="semester_id" required>
             <option value="">Select semester</option>
@@ -83,7 +83,7 @@
 
 <div class="card admin-panel" data-panel="subject">
     <h3>Subject Management</h3>
-    <form method="post" action="{{ url_for('add_subject') }}">
+    <form method="post" action="{{ url_for('add_subject') }}" data-ajax-action="1" data-ajax-success-message="Subject added. Refresh to see it in the list.">
         <label for="subject_name">Subject Name</label>
         <input id="subject_name" name="name" required>
 
@@ -100,7 +100,7 @@
     </form>
 
     <h3 style="margin-top: 16px;">Teacher-Subject Mapping</h3>
-    <form method="post" action="{{ url_for('assign_teacher_subject') }}" class="row">
+    <form method="post" action="{{ url_for('assign_teacher_subject') }}" class="row" data-ajax-action="1" data-ajax-success-message="Teacher-subject mapping saved. Refresh to see it in the list.">
         <div>
             <label for="map_teacher_id">Teacher ID</label>
             <select id="map_teacher_id" name="teacher_id" required>
@@ -128,7 +128,7 @@
 
 <div class="card admin-panel users-sub-panel" data-panel="users" data-user-panel="add-student">
     <h3>Allow New Student Registration (Admin Add)</h3>
-    <form method="post" action="{{ url_for('admin_add_student') }}">
+    <form method="post" action="{{ url_for('admin_add_student') }}" data-ajax-action="1" data-ajax-success-message="Student added. Refresh to see it in the list.">
         <div class="row">
             <div>
                 <label for="stu_name">Name</label>
@@ -145,10 +145,6 @@
             <div>
                 <label for="stu_roll">Roll Number</label>
                 <input id="stu_roll" name="roll_no" required>
-            </div>
-            <div>
-                <label for="stu_mobile">Mobile Number</label>
-                <input id="stu_mobile" name="mobile_no" placeholder="Optional">
             </div>
             <div>
                 <label for="stu_sem">Semester</label>
@@ -170,12 +166,12 @@
 <div class="card admin-panel users-sub-panel" data-panel="users" data-user-panel="delete-data">
     <h3>Delete Saved Data</h3>
     <div class="row">
-        <form method="post" action="{{ url_for('admin_delete_student_by_roll') }}" onsubmit="return confirm('Delete student by roll number?');">
+        <form method="post" action="{{ url_for('admin_delete_student_by_roll') }}" data-ajax-action="1" data-ajax-success-message="Student deleted (if found)." onsubmit="return confirm('Delete student by roll number?');">
             <label for="delete_roll">Delete Student By Roll No</label>
             <input id="delete_roll" name="roll_no" placeholder="Enter exact roll number" required>
             <button type="submit" class="btn-secondary">Delete Student</button>
         </form>
-        <form method="post" action="{{ url_for('admin_delete_teacher_by_email') }}" onsubmit="return confirm('Delete teacher by email?');">
+        <form method="post" action="{{ url_for('admin_delete_teacher_by_email') }}" data-ajax-action="1" data-ajax-success-message="Teacher deleted (if found)." onsubmit="return confirm('Delete teacher by email?');">
             <label for="delete_teacher_email">Delete Teacher By Email</label>
             <input id="delete_teacher_email" name="email" type="email" placeholder="Enter exact teacher email" required>
             <button type="submit" class="btn-secondary">Delete Teacher</button>
@@ -185,45 +181,50 @@
 
 <div class="card admin-panel" data-panel="subject">
     <h3>Subject Enable / Disable</h3>
-    <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>Subject</th>
-                    <th>Semester</th>
-                    <th>Status</th>
-                    <th>Action</th>
-                    <th>Delete</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for subject, semester in subjects %}
+    <button id="toggle-subject-list" type="button" class="btn-secondary" style="margin-top: 8px;">
+        List of Subjects
+    </button>
+    <div id="subject-list-wrap" style="display: none; margin-top: 12px;">
+        <div class="table-wrap">
+            <table>
+                <thead>
                     <tr>
-                        <td>{{ subject.name }}</td>
-                        <td>{{ semester.name }}</td>
-                        <td>
-                            {% if subject.status %}
-                                <span class="badge">Enabled</span>
-                            {% else %}
-                                <span class="badge badge-danger">Disabled</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            <form method="post" action="{{ url_for('toggle_subject', subject_id=subject.id) }}">
-                                <button type="submit" class="btn-secondary">
-                                    {{ "Disable" if subject.status else "Enable" }}
-                                </button>
-                            </form>
-                        </td>
-                        <td>
-                            <form method="post" action="{{ url_for('delete_subject', subject_id=subject.id) }}" onsubmit="return confirm('Delete this subject and related attendance data?');">
-                                <button type="submit" class="btn-secondary">Delete</button>
-                            </form>
-                        </td>
+                        <th>Subject</th>
+                        <th>Semester</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                        <th>Delete</th>
                     </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    {% for subject, semester in subjects %}
+                        <tr>
+                            <td>{{ subject.name }}</td>
+                            <td>{{ semester.name }}</td>
+                            <td>
+                                {% if subject.status %}
+                                    <span class="badge js-subject-status">Enabled</span>
+                                {% else %}
+                                    <span class="badge badge-danger js-subject-status">Disabled</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <form method="post" action="{{ url_for('toggle_subject', subject_id=subject.id) }}" data-ajax-action="1" data-ajax-toggle="subject">
+                                    <button type="submit" class="btn-secondary js-toggle-subject-btn">
+                                        {{ "Disable" if subject.status else "Enable" }}
+                                    </button>
+                                </form>
+                            </td>
+                            <td>
+                                <form method="post" action="{{ url_for('delete_subject', subject_id=subject.id) }}" data-ajax-action="1" data-ajax-remove-closest="tr" onsubmit="return confirm('Delete this subject and related attendance data?');">
+                                    <button type="submit" class="btn-secondary">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <h3 style="margin-top: 16px;">Mapped Teacher Subjects</h3>
@@ -246,7 +247,7 @@
                         <td>{{ subject.name }}</td>
                         <td>{{ semester.name }}</td>
                         <td>
-                            <form method="post" action="{{ url_for('delete_teacher_subject_mapping', mapping_id=mapping.id) }}" onsubmit="return confirm('Remove this teacher-subject mapping?');">
+                            <form method="post" action="{{ url_for('delete_teacher_subject_mapping', mapping_id=mapping.id) }}" data-ajax-action="1" data-ajax-remove-closest="tr" onsubmit="return confirm('Remove this teacher-subject mapping?');">
                                 <button type="submit" class="btn-secondary">Remove</button>
                             </form>
                         </td>
@@ -271,9 +272,9 @@
                         <td>{{ user.name }}</td>
                         <td>{{ user.email }}</td>
                         <td>{{ teacher.department }}</td>
-                        <td>{{ user.last_login_at if user.last_login_at else "-" }}</td>
+                        <td>{{ user.last_login_at|fmt_last_login if user.last_login_at else "-" }}</td>
                         <td>
-                            <form method="post" action="{{ url_for('admin_delete_teacher', teacher_id=teacher.id) }}" onsubmit="return confirm('Delete this teacher and related session/attendance data?');">
+                            <form method="post" action="{{ url_for('admin_delete_teacher', teacher_id=teacher.id) }}" data-ajax-action="1" data-ajax-remove-closest="tr" onsubmit="return confirm('Delete this teacher and related session/attendance data?');">
                                 <button type="submit" class="btn-secondary">Delete</button>
                             </form>
                         </td>
@@ -317,12 +318,12 @@
                                 <td>{{ user.email }}</td>
                                 <td>{{ semester.name }}</td>
                                 <td>{{ "Yes" if student.verified else "No" }}</td>
-                                <td>{{ user.last_login_at if user.last_login_at else "-" }}</td>
+                                <td>{{ user.last_login_at|fmt_last_login if user.last_login_at else "-" }}</td>
                                 <td>
                                     <button type="button" class="btn-secondary js-view-student" data-roll="{{ student.roll_no }}">View</button>
                                 </td>
                                 <td>
-                                    <form method="post" action="{{ url_for('admin_delete_student', student_id=student.id) }}" onsubmit="return confirm('Delete this student and attendance data?');">
+                                    <form method="post" action="{{ url_for('admin_delete_student', student_id=student.id) }}" data-ajax-action="1" data-ajax-remove-closest="tr" onsubmit="return confirm('Delete this student and attendance data?');">
                                         <button type="submit" class="btn-secondary">Delete</button>
                                     </form>
                                 </td>
@@ -468,9 +469,40 @@
             <input id="f_roll" name="roll_no" value="{{ filter_roll }}" placeholder="Exact roll no">
         </div>
         <div>
+            <label for="f_date_display">Date</label>
+            <input id="f_date" name="attendance_date" type="hidden" value="{{ attendance_date_iso }}">
+            <input id="f_date_display" type="text" inputmode="numeric" autocomplete="off" placeholder="DD/MM/YYYY" value="{{ attendance_date_display }}">
+            <div class="row" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                <button id="f_date_open" type="button" class="btn-secondary">Pick</button>
+                <button id="f_date_clear" type="button" class="btn-secondary">Clear</button>
+            </div>
+            <input id="f_date_picker" type="date" value="{{ attendance_date_iso }}" style="position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none;">
+        </div>
+        <div>
             <button type="submit">Apply</button>
         </div>
     </form>
+
+    <div class="card" style="margin-top: 12px;">
+        <h3 style="margin-top: 0;">Calendar View</h3>
+        <p id="admin-calendar-stats" class="badge" style="display: inline-block;">Select semester + date to view present/absent.</p>
+        <div class="table-wrap" style="margin-top: 10px;">
+            <table id="admin-calendar-table">
+                <thead>
+                    <tr>
+                        <th>Student</th>
+                        <th>Roll</th>
+                        <th>Semester</th>
+                        <th>Status</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="5">Select semester + date.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 
     <div class="table-wrap">
         <table>
@@ -493,6 +525,10 @@
                         data-semester-id="{{ semester.id }}"
                         data-subject-id="{{ subject.id }}"
                         data-roll="{{ student.roll_no }}"
+                        data-date="{{ att.date }}"
+                        data-time="{{ att.time }}"
+                        data-subject="{{ subject.name }}"
+                        data-student="{{ user.name }}"
                     >
                         <td>{{ user.name }}</td>
                         <td>{{ student.roll_no }}</td>
@@ -504,7 +540,7 @@
                             <span class="badge">Auto Verified</span>
                         </td>
                         <td>
-                            <form method="post" action="{{ url_for('delete_student_attendance', attendance_id=att.id) }}" onsubmit="return confirm('Delete this attendance record?');">
+                            <form method="post" action="{{ url_for('delete_student_attendance', attendance_id=att.id) }}" data-ajax-action="1" data-ajax-remove-closest="tr" onsubmit="return confirm('Delete this attendance record?');">
                                 <button type="submit" class="btn-secondary">Delete</button>
                             </form>
                         </td>
@@ -519,6 +555,10 @@
 
 <div class="card admin-panel" data-panel="report" id="percentage-report">
     <h3>Attendance Percentage Report</h3>
+    <p style="margin-top: 6px;">
+        <span class="badge badge-danger" style="margin-right: 6px;">Below 75%</span>
+        <span class="badge">75% or above</span>
+    </p>
     <div class="stats-grid">
         <div class="stats-card">
             <p>Semester-wise Student Totals</p>
@@ -567,7 +607,8 @@
             </thead>
             <tbody>
                 {% for item in percentage_report %}
-                    <tr data-semester-id="{{ item.semester_id }}" data-percentage="{{ item.percentage }}">
+                    <tr data-semester-id="{{ item.semester_id }}" data-percentage="{{ item.percentage }}"
+                        class="{{ 'attendance-low' if (item.percentage|float) < 75 else 'attendance-ok' }}">
                         <td>{{ item.name }}</td>
                         <td>{{ item.roll_no }}</td>
                         <td>{{ item.semester }}</td>
@@ -575,7 +616,7 @@
                         <td>{{ item.total }}</td>
                         <td>{{ item.percentage }}%</td>
                         <td>
-                            <form method="post" action="{{ url_for('delete_percentage_report_data', student_id=item.student_id) }}" onsubmit="return confirm('Delete all attendance records for this student report?');">
+                            <form method="post" action="{{ url_for('delete_percentage_report_data', student_id=item.student_id) }}" data-ajax-action="1" data-ajax-remove-closest="tr" onsubmit="return confirm('Delete all attendance records for this student report?');">
                                 <button type="submit" class="btn-secondary">Delete</button>
                             </form>
                         </td>
@@ -600,13 +641,31 @@
         const percentageForm = document.getElementById("percentage-filter-form");
         const semesterSelect = document.getElementById("report_semester_id");
         const percentageRows = document.querySelectorAll("#percentage-report tbody tr[data-semester-id]");
+        const toggleSubjectListBtn = document.getElementById("toggle-subject-list");
+        const subjectListWrap = document.getElementById("subject-list-wrap");
         const attendanceForm = document.getElementById("attendance-filter-form");
         const attendanceRows = document.querySelectorAll("#attendance-filter tbody tr[data-attendance-row]");
         const attendanceSemesterSelect = document.getElementById("f_semester");
         const attendanceSubjectSelect = document.getElementById("f_subject");
         const attendanceRollInput = document.getElementById("f_roll");
+        const attendanceDateHidden = document.getElementById("f_date");
+        const attendanceDateDisplay = document.getElementById("f_date_display");
+        const attendanceDatePicker = document.getElementById("f_date_picker");
+        const attendanceDateOpen = document.getElementById("f_date_open");
+        const attendanceDateClear = document.getElementById("f_date_clear");
+        const calendarStats = document.getElementById("admin-calendar-stats");
+        const calendarTable = document.getElementById("admin-calendar-table");
         const statsCards = document.querySelectorAll(".stats-card-clickable");
         let currentUsersPanel = "students";
+
+        function applyPercentageHighlight() {
+            percentageRows.forEach((row) => {
+                const percentage = parseFloat(row.dataset.percentage || "0");
+                row.classList.toggle("attendance-low", percentage < 75);
+                row.classList.toggle("attendance-ok", percentage >= 75);
+            });
+        }
+        applyPercentageHighlight();
 
         function showUsersPanel(panelName) {
             currentUsersPanel = panelName || "students";
@@ -637,6 +696,14 @@
             btn.addEventListener("click", () => showPanel(btn.dataset.target));
         });
         showPanel("users");
+
+        if (toggleSubjectListBtn && subjectListWrap) {
+            toggleSubjectListBtn.addEventListener("click", () => {
+                const isHidden = subjectListWrap.style.display === "none" || !subjectListWrap.style.display;
+                subjectListWrap.style.display = isHidden ? "" : "none";
+                toggleSubjectListBtn.textContent = isHidden ? "Hide Subjects" : "List of Subjects";
+            });
+        }
 
         async function loadStudentDetails(rollNo) {
             const roll = (rollNo || "").trim().toUpperCase();
@@ -722,6 +789,7 @@
                 percentageRows.forEach((row) => {
                     row.style.display = !semesterId || row.dataset.semesterId === semesterId ? "" : "none";
                 });
+                applyPercentageHighlight();
             });
         }
 
@@ -729,11 +797,13 @@
             const semesterId = attendanceSemesterSelect ? attendanceSemesterSelect.value : "";
             const subjectId = attendanceSubjectSelect ? attendanceSubjectSelect.value : "";
             const rollNo = attendanceRollInput ? attendanceRollInput.value.trim().toUpperCase() : "";
+            const dateIso = attendanceDateHidden ? (attendanceDateHidden.value || "").trim() : "";
             attendanceRows.forEach((row) => {
                 const semesterMatch = !semesterId || row.dataset.semesterId === semesterId;
                 const subjectMatch = !subjectId || row.dataset.subjectId === subjectId;
                 const rollMatch = !rollNo || (row.dataset.roll || "").toUpperCase() === rollNo;
-                row.style.display = semesterMatch && subjectMatch && rollMatch ? "" : "none";
+                const dateMatch = !dateIso || row.dataset.date === dateIso;
+                row.style.display = semesterMatch && subjectMatch && rollMatch && dateMatch ? "" : "none";
             });
         }
 
@@ -741,8 +811,189 @@
             attendanceForm.addEventListener("submit", function (e) {
                 e.preventDefault();
                 applyAttendanceFilter();
+                renderCalendarView();
             });
         }
+
+        function pad2(n) {
+            return String(n).padStart(2, "0");
+        }
+        function isoToDisplay(iso) {
+            const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+            if (!m) return "";
+            return `${m[3]}/${m[2]}/${m[1]}`;
+        }
+        function displayToIso(value) {
+            const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((value || "").trim());
+            if (!m) return null;
+            const dd = Number(m[1]);
+            const mm = Number(m[2]);
+            const yyyy = Number(m[3]);
+            if (!yyyy || mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+            const candidate = new Date(Date.UTC(yyyy, mm - 1, dd));
+            if (
+                candidate.getUTCFullYear() !== yyyy ||
+                candidate.getUTCMonth() !== mm - 1 ||
+                candidate.getUTCDate() !== dd
+            ) {
+                return null;
+            }
+            return `${yyyy}-${pad2(mm)}-${pad2(dd)}`;
+        }
+        function submitAttendanceFilter() {
+            if (!attendanceForm) return;
+            if (typeof attendanceForm.requestSubmit === "function") {
+                attendanceForm.requestSubmit();
+            } else {
+                attendanceForm.dispatchEvent(new Event("submit", { cancelable: true }));
+            }
+        }
+        function syncDateFromPicker() {
+            if (!attendanceDateHidden || !attendanceDatePicker || !attendanceDateDisplay) return;
+            attendanceDateHidden.value = attendanceDatePicker.value;
+            attendanceDateDisplay.value = isoToDisplay(attendanceDatePicker.value);
+        }
+
+        if (attendanceDateHidden && attendanceDateDisplay && attendanceDatePicker && attendanceDateOpen && attendanceDateClear) {
+            if (!attendanceDateDisplay.value) {
+                attendanceDateDisplay.value = isoToDisplay(attendanceDateHidden.value);
+            }
+            if (!attendanceDatePicker.value) {
+                attendanceDatePicker.value = attendanceDateHidden.value;
+            }
+
+            attendanceDateOpen.addEventListener("click", () => {
+                if (typeof attendanceDatePicker.showPicker === "function") {
+                    attendanceDatePicker.showPicker();
+                } else {
+                    attendanceDatePicker.click();
+                }
+            });
+
+            attendanceDateClear.addEventListener("click", () => {
+                attendanceDateHidden.value = "";
+                attendanceDateDisplay.value = "";
+                attendanceDatePicker.value = "";
+                submitAttendanceFilter();
+            });
+
+            attendanceDatePicker.addEventListener("change", () => {
+                syncDateFromPicker();
+                submitAttendanceFilter();
+            });
+
+            attendanceDateDisplay.addEventListener("change", () => {
+                const iso = displayToIso(attendanceDateDisplay.value);
+                if (!iso) {
+                    attendanceDateDisplay.value = isoToDisplay(attendanceDateHidden.value);
+                    return;
+                }
+                attendanceDateHidden.value = iso;
+                attendanceDatePicker.value = iso;
+                submitAttendanceFilter();
+            });
+        }
+
+        const roster = {{ admin_students_roster|tojson|safe }};
+
+        function renderCalendarView() {
+            if (!calendarTable || !calendarStats) return;
+            const semesterId = attendanceSemesterSelect ? attendanceSemesterSelect.value : "";
+            const subjectId = attendanceSubjectSelect ? attendanceSubjectSelect.value : "";
+            const rollNo = attendanceRollInput ? attendanceRollInput.value.trim().toUpperCase() : "";
+            const dateIso = attendanceDateHidden ? (attendanceDateHidden.value || "").trim() : "";
+
+            const tbody = calendarTable.querySelector("tbody");
+            if (!tbody) return;
+
+            if (!semesterId || !dateIso) {
+                calendarStats.textContent = "Select semester + date to view present/absent.";
+                tbody.innerHTML = "<tr><td colspan='5'>Select semester + date.</td></tr>";
+                return;
+            }
+
+            const recordsByRoll = new Map();
+            attendanceRows.forEach((row) => {
+                if (row.dataset.date !== dateIso) return;
+                if (row.dataset.semesterId !== semesterId) return;
+                if (subjectId && row.dataset.subjectId !== subjectId) return;
+                if (rollNo && (row.dataset.roll || '').toUpperCase() !== rollNo) return;
+                const key = (row.dataset.roll || "").toUpperCase();
+                if (!key) return;
+                const list = recordsByRoll.get(key) || [];
+                list.push({
+                    subject: row.dataset.subject || "",
+                    time: row.dataset.time || "",
+                });
+                recordsByRoll.set(key, list);
+            });
+
+            const studentsInSemester = roster.filter((s) => String(s.semester_id) === String(semesterId));
+            const filteredStudents = rollNo ? studentsInSemester.filter((s) => (s.roll_no || "").toUpperCase() === rollNo) : studentsInSemester;
+
+            let presentCount = 0;
+            let absentCount = 0;
+            tbody.innerHTML = "";
+
+            const sorted = filteredStudents.slice().sort((a, b) => String(a.roll_no).localeCompare(String(b.roll_no)));
+            sorted.forEach((s) => {
+                const records = recordsByRoll.get((s.roll_no || "").toUpperCase()) || [];
+                const isPresent = records.length > 0;
+                if (isPresent) presentCount += 1;
+                else absentCount += 1;
+
+                const tr = document.createElement("tr");
+                const tdName = document.createElement("td");
+                tdName.textContent = s.name || "";
+                const tdRoll = document.createElement("td");
+                tdRoll.textContent = s.roll_no || "";
+                const tdSem = document.createElement("td");
+                tdSem.textContent = s.semester || "";
+                const tdStatus = document.createElement("td");
+                const statusSpan = document.createElement("span");
+                statusSpan.className = isPresent ? "badge" : "badge badge-danger";
+                statusSpan.textContent = isPresent ? "Present" : "Absent";
+                tdStatus.appendChild(statusSpan);
+
+                const tdDetails = document.createElement("td");
+                if (records.length) {
+                    const ul = document.createElement("ul");
+                    ul.className = "tiny-list";
+                    records.forEach((r) => {
+                        const li = document.createElement("li");
+                        li.textContent = `${r.subject} (${r.time})`;
+                        ul.appendChild(li);
+                    });
+                    tdDetails.appendChild(ul);
+                } else {
+                    tdDetails.textContent = "No attendance recorded";
+                }
+
+                tr.appendChild(tdName);
+                tr.appendChild(tdRoll);
+                tr.appendChild(tdSem);
+                tr.appendChild(tdStatus);
+                tr.appendChild(tdDetails);
+                tbody.appendChild(tr);
+            });
+
+            calendarStats.textContent = `${presentCount} present · ${absentCount} absent out of ${presentCount + absentCount} students.`;
+        }
+
+        // Keep calendar + table filters responsive without navigation.
+        [attendanceSemesterSelect, attendanceSubjectSelect].forEach((el) => {
+            if (!el) return;
+            el.addEventListener("change", () => submitAttendanceFilter());
+        });
+        if (attendanceRollInput) {
+            attendanceRollInput.addEventListener("input", () => {
+                // Debounce lightly to avoid typing lag.
+                window.clearTimeout(attendanceRollInput._t);
+                attendanceRollInput._t = window.setTimeout(() => submitAttendanceFilter(), 250);
+            });
+        }
+
+        renderCalendarView();
 
         statsCards.forEach((card) => {
             card.addEventListener("click", function () {
@@ -752,7 +1003,11 @@
                     if (attendanceSemesterSelect) attendanceSemesterSelect.value = "";
                     if (attendanceSubjectSelect) attendanceSubjectSelect.value = "";
                     if (attendanceRollInput) attendanceRollInput.value = "";
+                    if (attendanceDateHidden) attendanceDateHidden.value = "";
+                    if (attendanceDateDisplay) attendanceDateDisplay.value = "";
+                    if (attendanceDatePicker) attendanceDatePicker.value = "";
                     applyAttendanceFilter();
+                    renderCalendarView();
                     return;
                 }
                 if (action === "attendance-current-semester") {
@@ -762,6 +1017,7 @@
                     if (attendanceSubjectSelect) attendanceSubjectSelect.value = "";
                     if (attendanceRollInput) attendanceRollInput.value = "";
                     applyAttendanceFilter();
+                    renderCalendarView();
                     return;
                 }
                 if (action === "open-subject-panel") {
@@ -779,9 +1035,9 @@
                 if (action === "report-75plus") {
                     showPanel("report");
                     percentageRows.forEach((row) => {
-                        const percentage = parseFloat(row.dataset.percentage || "0");
-                        row.style.display = percentage >= 75 ? "" : "none";
+                        row.style.display = "";
                     });
+                    applyPercentageHighlight();
                     return;
                 }
                 if (action === "report-current-filter") {

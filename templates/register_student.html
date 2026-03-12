@@ -2,14 +2,14 @@
 {% block content %}
 <div class="card auth-card">
     <h2>Student Registration</h2>
-    <p>Enter your details and complete registration. For next semesters, use the same email/mobile and update only semester.</p>
+    <p>Enter your details and complete registration. For next semesters, use the same email and update only semester.</p>
     <form method="post">
         <label for="name">Name</label>
         <input type="text" id="name" name="name" required>
 
         <label for="email_username">Email ID</label>
         <div class="email-username-wrap">
-            <input type="text" id="email_username" data-email-username placeholder="Enter email" required>
+            <input type="text" id="email_username" name="email_username" data-email-username placeholder="Enter email" required>
             <span class="email-domain-fixed">@gmail.com</span>
             <input type="hidden" id="email" name="email" data-email-hidden required>
         </div>
@@ -19,9 +19,6 @@
 
         <label for="roll_no">Roll Number (Unique)</label>
         <input type="text" id="roll_no" name="roll_no" required>
-
-        <label for="mobile_no">Mobile Number</label>
-        <input type="text" id="mobile_no" name="mobile_no" maxlength="15" required>
 
         <label for="semester_id">Semester</label>
         <select id="semester_id" name="semester_id" required>

@@ -2,6 +2,7 @@ import math
 import os
 import random
 import smtplib
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 from email.mime.text import MIMEText
 from functools import wraps
@@ -68,6 +69,17 @@ def inject_lams_logo():
         if os.path.exists(abs_path):
             return {"lams_logo": url_for("static", filename=rel_path)}
     return {"lams_logo": ""}
+
+
+@app.template_filter("fmt_last_login")
+def fmt_last_login(value):
+    """Format dashboard last-login timestamps (no seconds, DD/MM/YYYY)."""
+    if not value:
+        return ""
+    try:
+        return value.strftime("%d/%m/%Y %H:%M")
+    except Exception:
+        return str(value)
 
 
 @app.after_request
@@ -354,32 +366,33 @@ def register_student():
 
     if request.method == "POST":
         name = request.form.get("name", "").strip()
-        email_raw = request.form.get("email", "")
+        email_raw = request.form.get("email", "").strip() or request.form.get("email_username", "").strip()
         password = request.form.get("password", "")
         roll_no = request.form.get("roll_no", "").strip().upper()
-        mobile_no = request.form.get("mobile_no", "").strip()
-        semester_id = request.form.get("semester_id", type=int)
+        semester_raw = request.form.get("semester_id", "").strip()
+        try:
+            semester_id = int(semester_raw) if semester_raw else None
+        except (TypeError, ValueError):
+            semester_id = None
 
         email, email_error = normalize_gmail_email(email_raw)
         if email_error:
             flash(email_error, "error")
             return render_template("register_student.html", semesters=semesters)
 
-        if not all([name, email, password, roll_no, mobile_no, semester_id]):
-            flash("All fields are required.", "error")
-            return render_template("register_student.html", semesters=semesters)
-
-        if not mobile_no.isdigit() or len(mobile_no) < 10:
-            flash("Enter a valid mobile number.", "error")
-            return render_template("register_student.html", semesters=semesters)
-
-        # Prevent cross-role registration for same person (mobile-based guard).
-        teacher_with_mobile = Teacher.query.filter_by(mobile_no=mobile_no).first()
-        if teacher_with_mobile:
-            flash(
-                "This mobile number is already registered as Teacher. Multiple role accounts are not permitted.",
-                "error",
-            )
+        missing = []
+        if not name:
+            missing.append("Name")
+        if not email:
+            missing.append("Email")
+        if not password:
+            missing.append("Password")
+        if not roll_no:
+            missing.append("Roll Number")
+        if not semester_id:
+            missing.append("Semester")
+        if missing:
+            flash(f"Missing required fields: {', '.join(missing)}.", "error")
             return render_template("register_student.html", semesters=semesters)
 
         semester = db.session.get(Semester, semester_id)
@@ -396,9 +409,8 @@ def register_student():
 
         existing_user = User.query.filter_by(email=email).first()
         existing_roll = Student.query.filter_by(roll_no=roll_no).first()
-        existing_mobile_student = Student.query.filter_by(mobile_no=mobile_no).first()
 
-        # Existing student account: keep same email/mobile and update semester.
+        # Existing student account: keep same email and update semester.
         if existing_user:
             if existing_user.role != "student":
                 flash("This email is already used by another role.", "error")
@@ -411,14 +423,10 @@ def register_student():
             if existing_student.roll_no != roll_no:
                 flash("Roll number does not match this existing student account.", "error")
                 return render_template("register_student.html", semesters=semesters)
-            if existing_mobile_student and existing_mobile_student.user_id != existing_user.id:
-                flash("Mobile number already registered with another student account.", "error")
-                return render_template("register_student.html", semesters=semesters)
 
             existing_user.name = name
             existing_user.password = generate_password_hash(password)
             existing_user.email_verified = True
-            existing_student.mobile_no = mobile_no
             existing_student.semester_id = semester_id
             existing_student.verified = True
             db.session.commit()
@@ -426,9 +434,6 @@ def register_student():
         else:
             if existing_roll:
                 flash("Roll number already registered with another email.", "error")
-                return render_template("register_student.html", semesters=semesters)
-            if existing_mobile_student:
-                flash("Mobile number already registered. Multiple student accounts are not allowed.", "error")
                 return render_template("register_student.html", semesters=semesters)
 
             user = User(
@@ -444,7 +449,7 @@ def register_student():
                 Student(
                     user_id=user.id,
                     roll_no=roll_no,
-                    mobile_no=mobile_no,
+                    mobile_no=None,
                     semester_id=semester_id,
                     verified=True,
                 )
@@ -507,7 +512,7 @@ def verify_student_registration_otp():
             Student(
                 user_id=user.id,
                 roll_no=pending.roll_no,
-                mobile_no=pending.mobile_no,
+                mobile_no=None,
                 semester_id=pending.semester_id,
                 verified=True,
             )
@@ -547,10 +552,9 @@ def register_teacher():
     if request.method == "POST":
         teacher_id = request.form.get("teacher_id", "").strip().upper()
         name = request.form.get("name", "").strip()
-        email_raw = request.form.get("email", "")
+        email_raw = request.form.get("email", "").strip() or request.form.get("email_username", "").strip()
         password = request.form.get("password", "")
         department = request.form.get("department", "").strip()
-        mobile_no = request.form.get("mobile_no", "").strip()
 
         email, email_error = normalize_gmail_email(email_raw)
         if email_error:
@@ -561,29 +565,13 @@ def register_teacher():
             flash("Teacher ID is required.", "error")
             return render_template("register_teacher.html")
 
-        if not all([teacher_id, name, email, password, department, mobile_no]):
+        if not all([teacher_id, name, email, password, department]):
             flash("All fields are required.", "error")
             return render_template("register_teacher.html")
 
         # Teacher ID is entered during registration and must remain unique.
         if not teacher_id.replace("-", "").replace("_", "").isalnum():
             flash("Teacher ID can contain only letters, numbers, '-' and '_'.", "error")
-            return render_template("register_teacher.html")
-
-        if not mobile_no.isdigit() or len(mobile_no) < 10:
-            flash("Enter a valid mobile number.", "error")
-            return render_template("register_teacher.html")
-
-        # Prevent cross-role registration for same person (mobile-based guard).
-        student_with_mobile = Student.query.filter_by(mobile_no=mobile_no).first()
-        if student_with_mobile:
-            flash(
-                "This mobile number is already registered as Student. Multiple role accounts are not permitted.",
-                "error",
-            )
-            return render_template("register_teacher.html")
-        if Teacher.query.filter_by(mobile_no=mobile_no).first():
-            flash("Mobile number already registered with another teacher account.", "error")
             return render_template("register_teacher.html")
 
         if User.query.filter_by(email=email).first():
@@ -607,7 +595,7 @@ def register_teacher():
             user_id=user.id,
             teacher_id=teacher_id,
             department=department,
-            mobile_no=mobile_no,
+            mobile_no=None,
         )
         db.session.add(teacher_profile)
         try:
@@ -643,7 +631,7 @@ def register_admin():
             return redirect(url_for("login"))
 
         name = request.form.get("name", "").strip()
-        email_raw = request.form.get("email", "")
+        email_raw = request.form.get("email", "").strip() or request.form.get("email_username", "").strip()
         password = request.form.get("password", "")
         department = request.form.get("department", "").strip()
 
@@ -1000,6 +988,7 @@ def teacher_dashboard():
         # No admin mapping means no startable subjects for this teacher.
         subjects_query = subjects_query.filter(Subject.id == -1)
     subjects = subjects_query.order_by(Semester.id, Subject.name).all()
+    teacher_semester_ids = {sem.id for _, sem in subjects}
 
     active_sessions = (
         db.session.query(AttendanceSession, Subject, Semester)
@@ -1056,8 +1045,93 @@ def teacher_dashboard():
         .join(Semester, Semester.id == Student.semester_id)
     )
     if student_filter_semester:
-        teacher_students_query = teacher_students_query.filter(Student.semester_id == student_filter_semester)
+        if student_filter_semester in teacher_semester_ids:
+            teacher_students_query = teacher_students_query.filter(Student.semester_id == student_filter_semester)
+        else:
+            # Semester is selectable in UI, but show no students unless the teacher has subjects mapped in it.
+            teacher_students_query = teacher_students_query.filter(Student.id == -1)
+    else:
+        if teacher_semester_ids:
+            teacher_students_query = teacher_students_query.filter(Student.semester_id.in_(teacher_semester_ids))
+        else:
+            teacher_students_query = teacher_students_query.filter(Student.id == -1)
     teacher_students = teacher_students_query.order_by(Semester.id.asc(), User.name.asc()).all()
+    attendance_date_param = (request.args.get("attendance_date") or "").strip()
+    attendance_date_selected = date.today()
+    if attendance_date_param:
+        try:
+            attendance_date_selected = date.fromisoformat(attendance_date_param)
+        except ValueError:
+            attendance_date_selected = date.today()
+
+    session_counts_by_semester = dict(
+        db.session.query(AttendanceSession.semester_id, func.count(AttendanceSession.id))
+        .filter(AttendanceSession.teacher_id == teacher.id)
+        .group_by(AttendanceSession.semester_id)
+        .all()
+    )
+    attendance_counts_by_student = dict(
+        db.session.query(Attendance.student_id, func.count(Attendance.id))
+        .join(AttendanceSession, AttendanceSession.id == Attendance.session_id)
+        .filter(AttendanceSession.teacher_id == teacher.id)
+        .group_by(Attendance.student_id)
+        .all()
+    )
+
+    attendance_today_query = (
+        db.session.query(
+            Attendance.student_id,
+            Attendance.time,
+            Subject.name.label("subject_name"),
+        )
+        .join(AttendanceSession, AttendanceSession.id == Attendance.session_id)
+        .join(Subject, Subject.id == Attendance.subject_id)
+        .filter(
+            AttendanceSession.teacher_id == teacher.id,
+            Attendance.date == attendance_date_selected,
+        )
+    )
+    if filter_semester:
+        attendance_today_query = attendance_today_query.filter(AttendanceSession.semester_id == filter_semester)
+    if filter_subject:
+        attendance_today_query = attendance_today_query.filter(Attendance.subject_id == filter_subject)
+
+    attendance_today_records = attendance_today_query.order_by(Attendance.time.asc()).all()
+    attendance_by_student_on_date = defaultdict(list)
+    for student_id, attendance_time, subject_name in attendance_today_records:
+        formatted_time = (
+            attendance_time.strftime("%I:%M %p") if attendance_time else ""
+        )
+        attendance_by_student_on_date[student_id].append(
+            {"subject": subject_name, "time": formatted_time}
+        )
+
+    student_attendance_summary = []
+    for student, student_user, sem in teacher_students:
+        total_sessions = session_counts_by_semester.get(sem.id, 0)
+        present_sessions = attendance_counts_by_student.get(student.id, 0)
+        percentage = round((present_sessions / total_sessions) * 100, 2) if total_sessions else 0
+        student_attendance_summary.append(
+            {
+                "student": student,
+                "user": student_user,
+                "semester": sem,
+                "percentage": percentage,
+                "daily_records": attendance_by_student_on_date.get(student.id, []),
+            }
+        )
+    student_attendance_calendar = sorted(
+        student_attendance_summary,
+        key=lambda row: (
+            0 if row["daily_records"] else 1,
+            row["semester"].id,
+            (row["user"].name or "").strip().lower(),
+            (row["student"].roll_no or "").strip().upper(),
+        ),
+    )
+    total_students_shown = len(student_attendance_summary)
+    attendance_present_count = sum(1 for row in student_attendance_summary if row["daily_records"])
+    attendance_absent_count = total_students_shown - attendance_present_count
     filtered_subjects = subjects
     if filter_semester:
         filtered_subjects = [(subject, sem) for subject, sem in subjects if sem.id == filter_semester]
@@ -1090,6 +1164,18 @@ def teacher_dashboard():
         student_filter_semester=student_filter_semester,
         filter_semester=filter_semester,
         filter_subject=filter_subject,
+        student_attendance_summary=student_attendance_summary,
+        student_attendance_calendar=student_attendance_calendar,
+        attendance_date_iso=attendance_date_selected.isoformat(),
+        attendance_date_display=attendance_date_selected.strftime("%d/%m/%Y"),
+        attendance_date_parts={
+            "day": attendance_date_selected.day,
+            "month": attendance_date_selected.strftime("%B"),
+            "year": attendance_date_selected.year,
+        },
+        attendance_present_count=attendance_present_count,
+        attendance_absent_count=attendance_absent_count,
+        attendance_total_students=total_students_shown,
         teacher=teacher,
     )
 
@@ -1137,6 +1223,13 @@ def admin_dashboard():
         .join(User, User.id == Student.user_id)
         .join(Semester, Semester.id == Student.semester_id)
     )
+    roster_students = (
+        db.session.query(Student, User, Semester)
+        .join(User, User.id == Student.user_id)
+        .join(Semester, Semester.id == Student.semester_id)
+        .order_by(Semester.id.asc(), Student.roll_no.asc())
+        .all()
+    )
 
     teachers = (
         db.session.query(Teacher, User)
@@ -1152,6 +1245,13 @@ def admin_dashboard():
     detail_roll = request.args.get("detail_roll", "").strip().upper()
     report_semester_id = request.args.get("report_semester_id", type=int)
     student_semester_id = request.args.get("student_semester_id", type=int)
+    attendance_date_param = (request.args.get("attendance_date") or "").strip()
+    attendance_date_selected = None
+    if attendance_date_param:
+        try:
+            attendance_date_selected = date.fromisoformat(attendance_date_param)
+        except ValueError:
+            attendance_date_selected = None
 
     allowed_semester_ids = {sem.id for sem in semesters}
     if filter_semester and filter_semester not in allowed_semester_ids:
@@ -1317,6 +1417,15 @@ def admin_dashboard():
         .order_by(User.name.asc(), Semester.id.asc(), Subject.name.asc())
         .all()
     )
+    admin_students_roster = [
+        {
+            "name": user.name,
+            "roll_no": student.roll_no,
+            "semester_id": semester.id,
+            "semester": semester.name,
+        }
+        for student, user, semester in roster_students
+    ]
 
     return render_template(
         "admin_dashboard.html",
@@ -1349,6 +1458,9 @@ def admin_dashboard():
         teacher_subject_mappings=teacher_subject_mappings,
         students_semester_wise=students_semester_wise,
         report_semester_wise_counts=report_semester_wise_counts,
+        admin_students_roster=admin_students_roster,
+        attendance_date_iso=attendance_date_selected.isoformat() if attendance_date_selected else "",
+        attendance_date_display=attendance_date_selected.strftime("%d/%m/%Y") if attendance_date_selected else "",
     )
 
 
@@ -1460,7 +1572,6 @@ def admin_add_student():
     email = request.form.get("email", "").strip().lower()
     password = request.form.get("password", "")
     roll_no = request.form.get("roll_no", "").strip().upper()
-    mobile_no = request.form.get("mobile_no", "").strip()
     semester_id = request.form.get("semester_id", type=int)
     verified = request.form.get("verified") == "on"
 
@@ -1497,7 +1608,7 @@ def admin_add_student():
         Student(
             user_id=user.id,
             roll_no=roll_no,
-            mobile_no=mobile_no if mobile_no else None,
+            mobile_no=None,
             semester_id=semester_id,
             verified=verified,
         )

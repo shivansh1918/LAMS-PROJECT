@@ -11,7 +11,7 @@
 
         <label for="email_username">Email</label>
         <div class="email-username-wrap">
-            <input type="text" id="email_username" data-email-username placeholder="Enter email" required>
+            <input type="text" id="email_username" name="email_username" data-email-username placeholder="Enter email" required>
             <span class="email-domain-fixed">@gmail.com</span>
             <input type="hidden" id="email" name="email" data-email-hidden required>
         </div>
@@ -21,9 +21,6 @@
 
         <label for="department">Department</label>
         <input type="text" id="department" name="department" required>
-
-        <label for="mobile_no">Mobile Number</label>
-        <input type="tel" id="mobile_no" name="mobile_no" pattern="[0-9]{10,15}" required>
 
         <button type="submit">Register Teacher</button>
     </form>

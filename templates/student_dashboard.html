@@ -3,7 +3,7 @@
 <div class="card">
     <h2>Student Dashboard</h2>
     <p><b>Name:</b> {{ user.name }} | <b>Roll:</b> {{ student.roll_no }} | <b>Registered Semester:</b> {{ semester.name }}</p>
-    <p><b>Last Login:</b> {{ user.last_login_at if user.last_login_at else "First Login" }}</p>
+    <p><b>Last Login:</b> {{ user.last_login_at|fmt_last_login if user.last_login_at else "First Login" }}</p>
     <p><span class="badge">Overall Attendance: {{ overall_percentage }}%</span></p>
 </div>
 

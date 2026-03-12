@@ -4,7 +4,7 @@
     <h2>Teacher Dashboard</h2>
     <p><b>Teacher:</b> {{ user.name }}</p>
     <p><b>Teacher ID:</b> {{ teacher.teacher_id }}</p>
-    <p><b>Last Login:</b> {{ user.last_login_at if user.last_login_at else "First Login" }}</p>
+    <p><b>Last Login:</b> {{ user.last_login_at|fmt_last_login if user.last_login_at else "First Login" }}</p>
     <p>Start session captures your live location and opens attendance for matching semester/subject students.</p>
 </div>
 
@@ -81,19 +81,94 @@
                     <th>Email</th>
                     <th>Semester</th>
                     <th>Verified</th>
+                    <th>Attendance %</th>
                 </tr>
             </thead>
             <tbody>
-                {% for student, student_user, sem in teacher_students %}
+                {% for row in student_attendance_summary %}
                     <tr>
-                        <td>{{ student_user.name }}</td>
-                        <td>{{ student.roll_no }}</td>
-                        <td>{{ student_user.email }}</td>
-                        <td>{{ sem.name }}</td>
-                        <td>{{ "Yes" if student.verified else "No" }}</td>
+                        <td>{{ row.user.name }}</td>
+                        <td>{{ row.student.roll_no }}</td>
+                        <td>{{ row.user.email }}</td>
+                        <td>{{ row.semester.name }}</td>
+                        <td>{{ "Yes" if row.student.verified else "No" }}</td>
+                        <td>{{ row.percentage }}%</td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="5">No students found for selected semester.</td></tr>
+                    <tr><td colspan="6">No students found for selected semester.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <h3>Attendance on {{ attendance_date_display }}</h3>
+    <div class="row" style="gap: 1rem; flex-wrap: wrap; font-size: 0.95rem; margin-bottom: 8px;">
+        <span><strong>Date:</strong> {{ attendance_date_parts.day }}</span>
+        <span><strong>Month:</strong> {{ attendance_date_parts.month }}</span>
+        <span><strong>Year:</strong> {{ attendance_date_parts.year }}</span>
+    </div>
+    <form id="teacher-attendance-date-form" method="get" class="row" style="margin-bottom: 12px;">
+        <input type="hidden" name="student_semester_id" value="{{ student_filter_semester or '' }}">
+        <input type="hidden" name="semester_id" value="{{ filter_semester or '' }}">
+        <input type="hidden" name="subject_id" value="{{ filter_subject or '' }}">
+        <div>
+            <label for="attendance_date_display">Select date</label>
+            <input id="attendance_date" name="attendance_date" type="hidden" value="{{ attendance_date_iso }}">
+            <input id="attendance_date_display" type="text" inputmode="numeric" autocomplete="off" placeholder="DD/MM/YYYY" value="{{ attendance_date_display }}">
+            <button id="attendance_date_open" type="button" class="btn-secondary" style="margin-left: 8px;">Pick</button>
+            <input id="attendance_date_picker" type="date" value="{{ attendance_date_iso }}" style="position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none;">
+        </div>
+        <div>
+            <label>&nbsp;</label>
+            <button type="submit">Show Status</button>
+        </div>
+    </form>
+    <p>{{ attendance_present_count }} present · {{ attendance_absent_count }} absent out of {{ attendance_total_students }} students.</p>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Student</th>
+                    <th>Roll No</th>
+                    <th>Semester</th>
+                    <th>Attendance %</th>
+                    <th>Status</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in student_attendance_calendar %}
+                    <tr class="{{ 'attendance-absent' if not row.daily_records else 'attendance-present' }}">
+                        <td>{{ row.user.name }}</td>
+                        <td>{{ row.student.roll_no }}</td>
+                        <td>{{ row.semester.name }}</td>
+                        <td>{{ row.percentage }}%</td>
+                        <td>
+                            {% if row.daily_records %}
+                                <span class="badge badge-success">Present</span>
+                            {% else %}
+                                <span class="badge badge-warning">Absent</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if row.daily_records %}
+                                <ul class="tiny-list">
+                                    {% for detail in row.daily_records %}
+                                        <li>
+                                            <span>{{ detail.time }}</span>
+                                            <span style="margin-left: 8px;">{{ detail.subject }}</span>
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            {% else %}
+                                <span>No attendance recorded</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="6">No students available for the selected semester filter.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -109,6 +184,19 @@
                 <option value="">All</option>
                 {% for sem in semesters %}
                     <option value="{{ sem.id }}" {% if sem.id == filter_semester %}selected{% endif %}>{{ sem.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="subject_id_filter">Filter Subject</label>
+            <select id="subject_id_filter" name="subject_id">
+                <option value="">All</option>
+                {% for subject, sem in subjects %}
+                    {% if not filter_semester or sem.id == filter_semester %}
+                        <option value="{{ subject.id }}" {% if subject.id == filter_subject %}selected{% endif %}>
+                            {{ subject.name }} ({{ sem.name }})
+                        </option>
+                    {% endif %}
                 {% endfor %}
             </select>
         </div>
@@ -144,7 +232,8 @@
                             {% if att.teacher_verified %}
                                 <span class="badge">Verified</span>
                             {% else %}
-                                <form method="post" action="{{ url_for('verify_teacher_marked_attendance', attendance_id=att.id) }}">
+                                <form method="post" action="{{ url_for('verify_teacher_marked_attendance', attendance_id=att.id) }}"
+                                      data-ajax-action="1" data-ajax-replace-html="<span class=badge>Verified</span>">
                                     <button type="submit" class="btn-secondary">Verify</button>
                                 </form>
                             {% endif %}
@@ -213,23 +302,105 @@
 })();
 
 (() => {
-    const form = document.getElementById("teacher-attendance-filter-form");
-    const semesterSelect = document.getElementById("semester_id");
-    const rows = document.querySelectorAll("tr[data-attendance-row='1']");
-    if (!form || !semesterSelect || !rows.length) return;
+    const form = document.getElementById("teacher-attendance-date-form");
+    const hiddenIso = document.getElementById("attendance_date");
+    const display = document.getElementById("attendance_date_display");
+    const picker = document.getElementById("attendance_date_picker");
+    const openBtn = document.getElementById("attendance_date_open");
+    if (!form || !hiddenIso || !display || !picker || !openBtn) return;
 
-    const applyFilter = () => {
-        // Client-side filtering prevents page jump/reload on Apply Filter.
-        const semesterId = semesterSelect.value;
-        rows.forEach((row) => {
-            row.style.display = !semesterId || row.dataset.semesterId === semesterId ? "" : "none";
-        });
+    const submit = () => {
+        if (typeof form.requestSubmit === "function") {
+            form.requestSubmit();
+        } else {
+            form.submit();
+        }
     };
 
-    form.addEventListener("submit", (e) => {
-        e.preventDefault();
-        applyFilter();
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const isoToDisplay = (iso) => {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+        if (!m) return "";
+        return `${m[3]}/${m[2]}/${m[1]}`;
+    };
+    const displayToIso = (value) => {
+        const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((value || "").trim());
+        if (!m) return null;
+        const dd = Number(m[1]);
+        const mm = Number(m[2]);
+        const yyyy = Number(m[3]);
+        if (!yyyy || mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+        // Basic validity check using Date (avoids 31/02, etc.).
+        const candidate = new Date(Date.UTC(yyyy, mm - 1, dd));
+        if (
+            candidate.getUTCFullYear() !== yyyy ||
+            candidate.getUTCMonth() !== mm - 1 ||
+            candidate.getUTCDate() !== dd
+        ) {
+            return null;
+        }
+        return `${yyyy}-${pad2(mm)}-${pad2(dd)}`;
+    };
+
+    const syncFromPicker = () => {
+        hiddenIso.value = picker.value;
+        display.value = isoToDisplay(picker.value);
+    };
+
+    // Init display from server-provided ISO.
+    if (!display.value) {
+        display.value = isoToDisplay(hiddenIso.value);
+    }
+    if (!picker.value) {
+        picker.value = hiddenIso.value;
+    }
+
+    picker.addEventListener("change", () => {
+        syncFromPicker();
+        submit();
     });
+
+    openBtn.addEventListener("click", () => {
+        // Prefer native picker UI where supported (Chromium).
+        if (typeof picker.showPicker === "function") {
+            picker.showPicker();
+        } else {
+            picker.click();
+        }
+    });
+
+    display.addEventListener("change", () => {
+        const iso = displayToIso(display.value);
+        if (!iso) {
+            // Revert to last known-good value.
+            display.value = isoToDisplay(hiddenIso.value);
+            return;
+        }
+        hiddenIso.value = iso;
+        picker.value = iso;
+        submit();
+    });
+})();
+
+(() => {
+    const storageKey = "teacherDashboardScrollY";
+    const restoreScroll = () => {
+        const stored = sessionStorage.getItem(storageKey);
+        if (stored !== null) {
+            window.scrollTo(0, parseInt(stored, 10) || 0);
+            sessionStorage.removeItem(storageKey);
+        }
+    };
+
+    const captureScroll = () => {
+        sessionStorage.setItem(storageKey, Math.round(window.scrollY));
+    };
+
+    document.querySelectorAll("form").forEach((form) => {
+        form.addEventListener("submit", captureScroll, { passive: true });
+    });
+
+    window.addEventListener("load", restoreScroll);
 })();
 </script>
 {% endblock %}

@@ -44,7 +44,7 @@ class PendingStudentRegistration(db.Model):
     email = db.Column(db.String(255), nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
     roll_no = db.Column(db.String(40), nullable=False)
-    mobile_no = db.Column(db.String(20), nullable=False)
+    mobile_no = db.Column(db.String(20), nullable=True)
     semester_id = db.Column(db.Integer, db.ForeignKey("semesters.id"), nullable=False)
     otp_code = db.Column(db.String(6), nullable=False)
     expires_at = db.Column(db.DateTime, nullable=False)

@@ -35,6 +35,77 @@ function initGmailUsernameFields() {
     });
 }
 
+function initAjaxActionForms() {
+    const forms = document.querySelectorAll("form[data-ajax-action='1']");
+    forms.forEach((form) => {
+        if (form.dataset.ajaxBound === "1") return;
+        form.dataset.ajaxBound = "1";
+
+        form.addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            const submitButton = e.submitter || form.querySelector("button[type='submit']");
+            if (submitButton) {
+                submitButton.disabled = true;
+            }
+
+            try {
+                const response = await fetch(form.action, {
+                    method: (form.method || "POST").toUpperCase(),
+                    body: new FormData(form),
+                    headers: { "X-Requested-With": "fetch" },
+                });
+
+                if (!response.ok) {
+                    alert("Action failed. Please try again.");
+                    return;
+                }
+
+                const removeClosest = form.dataset.ajaxRemoveClosest || "";
+                if (removeClosest) {
+                    const target = form.closest(removeClosest);
+                    if (target) target.remove();
+                    return;
+                }
+
+                const replaceHtml = form.dataset.ajaxReplaceHtml || "";
+                if (replaceHtml) {
+                    form.outerHTML = replaceHtml;
+                    return;
+                }
+
+                const toggleKind = form.dataset.ajaxToggle || "";
+                if (toggleKind === "subject") {
+                    const row = form.closest("tr");
+                    const statusEl = row ? row.querySelector(".js-subject-status") : null;
+                    const btn = form.querySelector(".js-toggle-subject-btn") || submitButton;
+                    if (statusEl) {
+                        const enabled = statusEl.textContent.trim().toLowerCase() === "enabled";
+                        statusEl.textContent = enabled ? "Disabled" : "Enabled";
+                        statusEl.classList.toggle("badge-danger", enabled);
+                    }
+                    if (btn) {
+                        const label = (btn.textContent || "").trim().toLowerCase();
+                        btn.textContent = label === "disable" ? "Enable" : "Disable";
+                        btn.disabled = false;
+                    }
+                    return;
+                }
+
+                alert(form.dataset.ajaxSuccessMessage || "Action completed.");
+            } catch (err) {
+                alert("Could not connect to server. Please try again.");
+            } finally {
+                if (submitButton && !submitButton.disabled) {
+                    // already re-enabled by toggles
+                } else if (submitButton && !form.dataset.ajaxReplaceHtml && !form.dataset.ajaxRemoveClosest) {
+                    submitButton.disabled = false;
+                }
+            }
+        });
+    });
+}
+
 function waitMs(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -232,4 +303,5 @@ async function markAttendance(sessionId, buttonEl) {
 
 document.addEventListener("DOMContentLoaded", () => {
     initGmailUsernameFields();
+    initAjaxActionForms();
 });

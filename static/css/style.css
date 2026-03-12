@@ -542,6 +542,16 @@ button {
     color: var(--text);
 }
 
+.tiny-list {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-dim);
+}
+
+.tiny-list li {
+    margin: 2px 0;
+}
+
 .email-username-wrap {
     display: grid;
     grid-template-columns: 1fr auto;
@@ -649,6 +659,30 @@ thead th {
 
 tbody tr:nth-child(even) {
     background: rgba(14, 24, 51, 0.45);
+}
+
+tr.attendance-low {
+    background: rgba(255, 102, 122, 0.14) !important;
+}
+
+tr.attendance-low td {
+    color: #ffd2da;
+}
+
+tr.attendance-ok {
+    background: rgba(52, 211, 153, 0.06);
+}
+
+tr.attendance-absent {
+    background: rgba(255, 102, 122, 0.12) !important;
+}
+
+tr.attendance-absent td {
+    color: #ffd2da;
+}
+
+tr.attendance-present {
+    background: rgba(52, 211, 153, 0.05);
 }
 
 .badge {
