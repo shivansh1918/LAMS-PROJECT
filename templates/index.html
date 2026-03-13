@@ -1,51 +1,49 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card home-hero home-hero-premium">
-    <p class="hero-tag">Smart Campus Platform</p>
-    <h1 class="site-title">Location Attendance Management System</h1>
-    <p class="hero-subtitle">Bareilly College, Bareilly.</p>
-    <p class="hero-desc">Professional location-based attendance management for students, teachers, and admin workflows.</p>
-    <div class="hero-pills">
-        <span>Geo-Fenced Marking</span>
-        <span>Semester-Wise Reports</span>
-        <span>Role-Based Dashboards</span>
-    </div>
-</section>
-
-<section class="card register-highlight">
-    <div class="register-icon-wrap">
-        <img class="register-icon-img" src="{{ url_for('static', filename='img/registration-map.svg') }}" alt="Registration Map Icon">
-    </div>
-    <h3>Registration Center</h3>
-    <p>Create your account with role-based onboarding and streamlined access flow.</p>
-    <div class="auth-strip">
-        <a href="{{ url_for('register_student') }}"><button>Student Register</button></a>
-        <a href="{{ url_for('register_teacher') }}"><button class="btn-secondary">Teacher Register</button></a>
-        <a href="{{ url_for('register_admin') }}"><button class="btn-secondary">Admin Register</button></a>
-        <a href="{{ url_for('login') }}"><button>Common Login</button></a>
-    </div>
-</section>
-
-<section class="home-kpi-grid">
-    <div class="card home-kpi">
-        <h4>30m</h4>
-        <p>Attendance range lock</p>
-    </div>
-    <div class="card home-kpi">
-        <h4>6</h4>
-        <p>Semester support</p>
-    </div>
-    <div class="card home-kpi">
-        <h4>3</h4>
-        <p>Core user roles</p>
+<section class="card home-hero home-hero-premium modern-hero">
+    <div class="hero-grid">
+        <div>
+            <p class="hero-tag">Smart Campus Platform</p>
+            <h1 class="site-title">Location Attendance Management System</h1>
+            <p class="hero-subtitle">Bareilly College - Built for fast, accurate classroom flow.</p>
+            <p class="hero-desc">Track attendance with secure geo-fencing, live sessions, and clean dashboards built for students, teachers, and admins.</p>
+            <div class="hero-actions">
+                <a href="{{ url_for('login') }}"><button>Login</button></a>
+                <a href="{{ url_for('register_student') }}"><button class="btn-secondary">Student Register</button></a>
+            </div>
+            <div class="hero-pills">
+                <span>50m Geo-Fence</span>
+                <span>Live Sessions</span>
+                <span>Verified Records</span>
+            </div>
+        </div>
+        <div class="hero-panel">
+            <div class="hero-stat">
+                <span class="stat-label">Instant Verification</span>
+                <span class="stat-value">Real-time</span>
+            </div>
+            <div class="hero-stat">
+                <span class="stat-label">Role Dashboards</span>
+                <span class="stat-value">3</span>
+            </div>
+            <div class="hero-cta-card">
+                <h3>Register in minutes</h3>
+                <p>Role-based onboarding with guided forms and secure access.</p>
+                <div class="auth-strip compact">
+                    <a href="{{ url_for('register_student') }}"><button>Student</button></a>
+                    <a href="{{ url_for('register_teacher') }}"><button class="btn-secondary">Teacher</button></a>
+                    <a href="{{ url_for('register_admin') }}"><button class="btn-secondary">Admin</button></a>
+                </div>
+            </div>
+        </div>
     </div>
 </section>
 
 <h2 class="feature-title">Features</h2>
-<section class="feature-grid">
+<section class="feature-grid modern-feature-grid">
     <div class="card feature-box">
         <h3>Student Attendance</h3>
-        <p>Semester-wise subjects, live session tracking, and 30-meter geofence validation before attendance mark.</p>
+        <p>Semester-wise subjects, live session tracking, and 50-meter geofence validation before attendance mark.</p>
     </div>
     <div class="card feature-box">
         <h3>Teacher Session</h3>
@@ -53,7 +51,7 @@
     </div>
     <div class="card feature-box">
         <h3>Subject Control</h3>
-        <p>Admin can add and manage subjects for Semester 1 to Semester 6 with centralized control.</p>
+        <p>Admin can add and manage subjects for each semester with centralized control.</p>
     </div>
     <div class="card feature-box">
         <h3>Admin Management</h3>
@@ -62,6 +60,42 @@
     <div class="card feature-box">
         <h3>Analytics & Reports</h3>
         <p>View semester-wise attendance percentages, subject reports, and filtered records for decision making.</p>
+    </div>
+    <div class="card feature-box">
+        <h3>Secure Verification</h3>
+        <p>Location validation ensures attendance is recorded only within the allowed 50-meter range.</p>
+    </div>
+</section>
+
+<section class="card modern-steps">
+    <h3>How it works</h3>
+    <div class="steps-grid">
+        <div class="step-card">
+            <span class="step-badge">01</span>
+            <h4>Start a session</h4>
+            <p>Teachers open a subject session with live GPS coordinates.</p>
+        </div>
+        <div class="step-card">
+            <span class="step-badge">02</span>
+            <h4>Mark attendance</h4>
+            <p>Students confirm location within 50 meters to mark.</p>
+        </div>
+        <div class="step-card">
+            <span class="step-badge">03</span>
+            <h4>Review & report</h4>
+            <p>Admins track attendance trends and manage records.</p>
+        </div>
+    </div>
+</section>
+
+<section class="card modern-cta">
+    <div>
+        <h3>Ready to streamline attendance-</h3>
+        <p>Use a single system for students, teachers, and admins with reliable tracking.</p>
+    </div>
+    <div class="cta-actions">
+        <a href="{{ url_for('login') }}"><button>Get Started</button></a>
+        <a href="{{ url_for('register_teacher') }}"><button class="btn-secondary">Teacher Register</button></a>
     </div>
 </section>
 {% endblock %}

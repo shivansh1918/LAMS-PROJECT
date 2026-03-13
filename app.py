@@ -400,7 +400,7 @@ def register_student():
             flash("Invalid semester selected.", "error")
             return render_template("register_student.html", semesters=semesters)
         if semester.name not in ALLOWED_SEMESTER_NAMES:
-            flash("Only Semester 1 to Semester 6 are allowed.", "error")
+            flash("Only fixed semesters are allowed.", "error")
             return render_template("register_student.html", semesters=semesters)
 
         if student_self_registration_blocked(email, roll_no):
@@ -1400,7 +1400,7 @@ def admin_dashboard():
 @app.post("/admin/semester")
 @login_required(role="admin")
 def add_semester():
-    flash("Only Semester 1 to Semester 6 are allowed. New semesters cannot be added.", "error")
+    flash("Only fixed semesters are allowed. New semesters cannot be added.", "error")
     return redirect(url_for("admin_dashboard"))
 
 
@@ -1413,7 +1413,7 @@ def start_new_semester():
         flash("Select a valid semester to start.", "error")
         return redirect(url_for("admin_dashboard"))
     if semester.name not in ALLOWED_SEMESTER_NAMES:
-        flash("Only Semester 1 to Semester 6 are allowed.", "error")
+        flash("Only fixed semesters are allowed.", "error")
         return redirect(url_for("admin_dashboard"))
 
     setting = SystemSetting.query.filter_by(key="current_semester_id").first()
@@ -1470,7 +1470,7 @@ def delete_semester_data():
         flash("Select a valid semester to delete.", "error")
         return redirect(url_for("admin_dashboard"))
     if semester.name not in ALLOWED_SEMESTER_NAMES:
-        flash("Only Semester 1 to Semester 6 are allowed.", "error")
+        flash("Only fixed semesters are allowed.", "error")
         return redirect(url_for("admin_dashboard"))
 
     subject_ids_query = db.session.query(Subject.id).filter(Subject.semester_id == semester.id)
@@ -1505,7 +1505,7 @@ def delete_semester_data():
 @app.post("/admin/semester/current/delete")
 @login_required(role="admin")
 def delete_current_semester():
-    flash("Semesters cannot be deleted. Only Semester 1 to Semester 6 are fixed.", "error")
+    flash("Semesters cannot be deleted. Only fixed semesters are allowed.", "error")
     return redirect(url_for("admin_dashboard"))
 
 
@@ -1566,7 +1566,7 @@ def admin_add_student():
         flash("Invalid semester selected.", "error")
         return redirect(url_for("admin_dashboard"))
     if semester.name not in ALLOWED_SEMESTER_NAMES:
-        flash("Only Semester 1 to Semester 6 are allowed.", "error")
+        flash("Only fixed semesters are allowed.", "error")
         return redirect(url_for("admin_dashboard"))
 
     user = User(
@@ -1715,7 +1715,7 @@ def add_subject():
         flash("Invalid semester selected.", "error")
         return redirect(url_for("admin_dashboard"))
     if semester.name not in ALLOWED_SEMESTER_NAMES:
-        flash("Subjects can be added only for Semester 1 to Semester 6.", "error")
+        flash("Subjects can be added only for fixed semesters.", "error")
         return redirect(url_for("admin_dashboard"))
 
     exists = (
@@ -2053,6 +2053,10 @@ def mark_attendance():
         longitude = float(longitude)
     except (TypeError, ValueError):
         return jsonify({"success": False, "message": "Invalid location values."}), 400
+    if not (math.isfinite(latitude) and math.isfinite(longitude)):
+        return jsonify({"success": False, "message": "Invalid location values."}), 400
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        return jsonify({"success": False, "message": "Invalid location coordinates."}), 400
     try:
         accuracy = float(accuracy) if accuracy not in (None, "") else 0.0
     except (TypeError, ValueError):
@@ -2060,24 +2064,23 @@ def mark_attendance():
     if accuracy < 0:
         accuracy = 0.0
 
-    # Strict 30-meter geofence check.
+    # Strict 50-meter geofence check.
     distance = haversine_meters(
         latitude,
         longitude,
         active_session.latitude,
         active_session.longitude,
     )
-    # Use accuracy-aware distance to reduce false negatives when GPS precision is weak.
-    # Example: raw distance 50m with ~25m accuracy can still be effectively within 30m range.
-    effective_distance = max(0.0, distance - accuracy)
-    if effective_distance > 30:
+    if not math.isfinite(distance):
+        return jsonify({"success": False, "message": "Invalid distance calculation."}), 400
+
+    allowed_radius = 50.0
+    if distance > allowed_radius:
         return jsonify(
             {
                 "success": False,
                 "message": (
-                    f"Attendance not marked. Effective distance is {round(effective_distance, 2)} meters "
-                    f"(raw: {round(distance, 2)}m, accuracy: {round(accuracy, 2)}m). "
-                    "Allowed distance is 30 meters."
+                    "Attendance not allowed. You are outside the allowed 50 meter range."
                 ),
             }
         ), 403
@@ -2097,10 +2100,7 @@ def mark_attendance():
     db.session.add(record)
     db.session.commit()
 
-    message = (
-        f"Attendance marked successfully. Effective distance: {round(effective_distance, 2)}m "
-        f"(raw: {round(distance, 2)}m)."
-    )
+    message = f"Attendance marked successfully. Distance: {round(distance, 2)}m."
     return jsonify({"success": True, "message": message})
 
 

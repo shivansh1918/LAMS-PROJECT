@@ -259,6 +259,238 @@ main.container {
     letter-spacing: 0.02em;
 }
 
+.modern-hero {
+    text-align: left;
+    overflow: hidden;
+}
+
+.hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+    gap: 20px;
+    align-items: center;
+}
+
+.modern-hero .site-title {
+    font-size: clamp(30px, 4.8vw, 50px);
+    letter-spacing: 0.015em;
+}
+
+.modern-hero .hero-subtitle {
+    font-size: 16px;
+    margin-top: 6px;
+}
+
+.modern-hero .hero-desc {
+    margin-top: 8px;
+    font-size: 15px;
+    line-height: 1.6;
+}
+
+.hero-actions {
+    margin: 12px 0 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.hero-actions a button {
+    min-width: 160px;
+}
+
+.hero-panel {
+    background: rgba(10, 20, 40, 0.7);
+    border: 1px solid rgba(132, 156, 219, 0.3);
+    border-radius: 16px;
+    padding: 16px;
+    display: grid;
+    gap: 12px;
+}
+
+.hero-panel .hero-stat {
+    padding: 9px 12px;
+}
+
+.hero-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px solid rgba(132, 156, 219, 0.22);
+    border-radius: 12px;
+    padding: 10px 12px;
+    background: rgba(9, 18, 37, 0.62);
+}
+
+.stat-label {
+    font-size: 12px;
+    color: #a6b6dc;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.stat-value {
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+    color: #e4f7ff;
+}
+
+.hero-cta-card {
+    border: 1px solid rgba(40, 215, 192, 0.3);
+    background: rgba(7, 16, 34, 0.7);
+    border-radius: 12px;
+    padding: 12px;
+}
+
+.hero-cta-card h3 {
+    margin: 0 0 6px;
+    font-size: 16px;
+}
+
+.hero-cta-card p {
+    margin: 0 0 10px;
+    font-size: 13px;
+}
+
+.auth-strip.compact {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.modern-banner {
+    border: 1px solid rgba(68, 167, 255, 0.25);
+    background:
+        linear-gradient(140deg, rgba(12, 24, 47, 0.92), rgba(8, 16, 33, 0.72)),
+        radial-gradient(circle at 20% 20%, rgba(68, 167, 255, 0.12), transparent 38%);
+}
+
+.modern-banner h3 {
+    margin: 0 0 6px;
+    font-size: 18px;
+}
+
+.modern-banner p {
+    margin: 0;
+    color: #b7c9ee;
+}
+
+.banner-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+    gap: 16px;
+    align-items: center;
+}
+
+.banner-metrics {
+    display: grid;
+    gap: 10px;
+}
+
+.banner-metrics div {
+    border: 1px solid rgba(93, 216, 255, 0.2);
+    border-radius: 12px;
+    padding: 10px 12px;
+    background: rgba(9, 18, 37, 0.62);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.banner-metrics span {
+    font-size: 12px;
+    color: #a6b6dc;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+}
+
+.banner-metrics strong {
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 16px;
+    color: #dff2ff;
+}
+
+.modern-feature-grid .feature-box {
+    min-height: 170px;
+}
+
+.modern-feature-grid .feature-box h3 {
+    margin-bottom: 8px;
+}
+
+.modern-feature-grid .feature-box p {
+    line-height: 1.55;
+}
+
+.modern-steps {
+    border: 1px solid rgba(40, 215, 192, 0.28);
+    background: rgba(10, 18, 35, 0.72);
+}
+
+.modern-steps h3 {
+    margin-bottom: 12px;
+}
+
+.steps-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.step-card {
+    border: 1px solid rgba(132, 156, 219, 0.25);
+    border-radius: 14px;
+    padding: 14px;
+    background: rgba(9, 18, 37, 0.62);
+}
+
+.step-card p {
+    margin: 0;
+    color: #b7c9ee;
+}
+
+.step-card h4 {
+    margin: 10px 0 6px;
+    font-family: "Space Grotesk", sans-serif;
+}
+
+.step-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    border: 1px solid rgba(40, 215, 192, 0.45);
+    color: #d7fbff;
+    font-weight: 700;
+    background: rgba(40, 215, 192, 0.12);
+}
+
+.modern-cta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border: 1px solid rgba(68, 167, 255, 0.3);
+    background:
+        radial-gradient(circle at 20% 10%, rgba(40, 215, 192, 0.18), transparent 40%),
+        linear-gradient(140deg, rgba(12, 24, 47, 0.92), rgba(8, 16, 33, 0.72));
+}
+
+.modern-cta h3 {
+    margin: 0 0 6px;
+}
+
+.modern-cta p {
+    margin: 0;
+    color: #b7c9ee;
+}
+
+.cta-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
 .hero-box {
     border: 1px solid rgba(78, 198, 255, 0.28);
 }
@@ -747,6 +979,17 @@ a:hover {
     .brand::after {
         width: 24px;
     }
+
+    .hero-grid,
+    .banner-grid,
+    .steps-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .modern-cta {
+        flex-direction: column;
+        align-items: flex-start;
+    }
 }
 
 @media (max-width: 720px) {
@@ -786,6 +1029,16 @@ a:hover {
 
     table {
         min-width: 520px;
+    }
+
+    .hero-actions,
+    .cta-actions {
+        width: 100%;
+    }
+
+    .hero-actions button,
+    .cta-actions button {
+        width: 100%;
     }
 }
 
