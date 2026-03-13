@@ -132,39 +132,4 @@
     </div>
 </div>
 
-<div class="card">
-    <h3>My Attendance Records</h3>
-    <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Time</th>
-                    <th>Semester</th>
-                    <th>Subject</th>
-                    <th>Teacher</th>
-                    <th>Teacher Verify</th>
-                    <th>Latitude</th>
-                    <th>Longitude</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for att, subject, sem, teacher_user in my_attendance %}
-                    <tr>
-                        <td>{{ att.date }}</td>
-                        <td>{{ att.time }}</td>
-                        <td>{{ sem.name }}</td>
-                        <td>{{ subject.name }}</td>
-                        <td>{{ teacher_user.name }}</td>
-                        <td>{{ "Verified" if att.teacher_verified else "Pending" }}</td>
-                        <td>{{ att.latitude }}</td>
-                        <td>{{ att.longitude }}</td>
-                    </tr>
-                {% else %}
-                    <tr><td colspan="8">No attendance records yet.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
 {% endblock %}

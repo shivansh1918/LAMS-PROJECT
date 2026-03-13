@@ -3,7 +3,6 @@
 <div class="card" id="admin-overview">
     <h2>Admin Dashboard</h2>
     <p>Manage semesters, subjects, users and attendance reports.</p>
-    <p><span class="badge">Current Semester: {{ current_semester.name if current_semester else "Not Set" }}</span></p>
     <p><span class="badge">Last Login: {{ admin_user.last_login_at|fmt_last_login if admin_user and admin_user.last_login_at else "First Login" }}</span></p>
 </div>
 
@@ -54,23 +53,20 @@
 </div>
 
 <div class="card admin-panel" data-panel="semester">
-    <h3>Start New Semester</h3>
-    <form method="post" action="{{ url_for('start_new_semester') }}" data-ajax-action="1" data-ajax-success-message="New semester started. Refresh to see updated lists.">
-        <label for="start_semester_id">Semester</label>
-        <select id="start_semester_id" name="semester_id" required>
+    <h3>Semester Management</h3>
+    <form
+        method="post"
+        action="{{ url_for('delete_semester_data') }}"
+        onsubmit="return confirm('Delete all data for the selected semester? This will remove students, attendance, sessions, subjects, and mappings.');"
+    >
+        <label for="delete_semester_id">Select Semester</label>
+        <select id="delete_semester_id" name="semester_id" required>
             <option value="">Select semester</option>
             {% for sem in semesters %}
                 <option value="{{ sem.id }}">{{ sem.name }}</option>
             {% endfor %}
         </select>
-        <button type="submit">Start Semester</button>
-    </form>
-    <form
-        method="post"
-        action="{{ url_for('clear_current_semester_data') }}"
-        onsubmit="return confirm('Clear attendance/session data for current semester?');"
-    >
-        <button type="submit" class="btn-secondary">Clear Current Semester Data</button>
+        <button type="submit" class="btn-secondary">Delete Semester Data</button>
     </form>
 </div>
 
@@ -170,9 +166,9 @@
             <input id="delete_roll" name="roll_no" placeholder="Enter exact roll number" required>
             <button type="submit" class="btn-secondary">Delete Student</button>
         </form>
-        <form method="post" action="{{ url_for('admin_delete_teacher_by_email') }}" data-ajax-action="1" data-ajax-success-message="Teacher deleted (if found)." onsubmit="return confirm('Delete teacher by email?');">
-            <label for="delete_teacher_email">Delete Teacher By Email</label>
-            <input id="delete_teacher_email" name="email" type="email" placeholder="Enter exact teacher email" required>
+        <form method="post" action="{{ url_for('admin_delete_teacher_by_teacher_id') }}" data-ajax-action="1" data-ajax-success-message="Teacher deleted (if found)." onsubmit="return confirm('Delete teacher by teacher ID?');">
+            <label for="delete_teacher_id">Delete Teacher By ID</label>
+            <input id="delete_teacher_id" name="teacher_id" placeholder="Enter exact teacher ID" required>
             <button type="submit" class="btn-secondary">Delete Teacher</button>
         </form>
     </div>
@@ -357,7 +353,7 @@
                     <p><b>Student Name:</b> {{ student_detail_summary.name }}</p>
                     <p><b>Roll Number:</b> {{ student_detail_summary.roll_no }}</p>
                     <p><b>Semester:</b> {{ student_detail_summary.semester }}</p>
-                    <p><b>Total Attended Sessions:</b> {{ student_detail_summary.present }}</p>
+                    <p><b>Total Sessions:</b> {{ student_detail_summary.total_sessions }} | <b>Attended Sessions:</b> {{ student_detail_summary.attended_sessions }}</p>
                     <p><b>Attendance Percentage:</b> {{ student_detail_summary.percentage }}%</p>
                 </div>
             {% else %}
@@ -501,7 +497,7 @@
 
         if (toggleSubjectListBtn && subjectListWrap) {
             toggleSubjectListBtn.addEventListener("click", () => {
-                const isHidden = subjectListWrap.style.display === "none" || !subjectListWrap.style.display;
+                const isHidden = window.getComputedStyle(subjectListWrap).display === "none";
                 subjectListWrap.style.display = isHidden ? "" : "none";
                 toggleSubjectListBtn.textContent = isHidden ? "Hide Subjects" : "List of Subjects";
             });
@@ -526,7 +522,7 @@
                         <p><b>Student Name:</b> ${s.name}</p>
                         <p><b>Roll Number:</b> ${s.roll_no}</p>
                         <p><b>Semester:</b> ${s.semester}</p>
-                        <p><b>Total Attended Sessions:</b> ${s.attended_sessions}</p>
+                        <p><b>Total Sessions:</b> ${s.total_sessions} | <b>Attended Sessions:</b> ${s.attended_sessions}</p>
                         <p><b>Attendance Percentage:</b> ${s.percentage}%</p>
                     </div>
                 `;

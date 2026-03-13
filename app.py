@@ -865,17 +865,6 @@ def student_dashboard():
         if subject.id not in active_session_by_subject:
             active_session_by_subject[subject.id] = (sess, teacher_user)
 
-    my_attendance = (
-        db.session.query(Attendance, Subject, Semester, User)
-        .join(Subject, Subject.id == Attendance.subject_id)
-        .join(Semester, Semester.id == Subject.semester_id)
-        .join(AttendanceSession, AttendanceSession.id == Attendance.session_id)
-        .join(Teacher, Teacher.id == AttendanceSession.teacher_id)
-        .join(User, User.id == Teacher.user_id)
-        .filter(Attendance.student_id == student.id)
-        .order_by(Attendance.date.desc(), Attendance.time.desc())
-        .all()
-    )
     marked_session_ids = {
         row[0]
         for row in db.session.query(Attendance.session_id)
@@ -884,14 +873,10 @@ def student_dashboard():
     }
 
     subject_percentages = []
-    total_sessions_all = 0
-    total_present_all = 0
 
     for subject in subjects:
         total_sessions = AttendanceSession.query.filter_by(subject_id=subject.id).count()
         present = Attendance.query.filter_by(student_id=student.id, subject_id=subject.id).count()
-        total_sessions_all += total_sessions
-        total_present_all += present
         percentage = round((present / total_sessions) * 100, 2) if total_sessions else 0
         subject_percentages.append(
             {
@@ -902,7 +887,19 @@ def student_dashboard():
             }
         )
 
-    overall_percentage = round((total_present_all / total_sessions_all) * 100, 2) if total_sessions_all else 0
+    overall_total_sessions = AttendanceSession.query.filter_by(semester_id=student.semester_id).count()
+    overall_present = (
+        db.session.query(func.count(Attendance.id))
+        .join(Subject, Subject.id == Attendance.subject_id)
+        .filter(Attendance.student_id == student.id, Subject.semester_id == student.semester_id)
+        .scalar()
+        or 0
+    )
+    overall_percentage = (
+        round((overall_present / overall_total_sessions) * 100, 2)
+        if overall_total_sessions
+        else 0
+    )
 
     # Show semester-wise report only from this student's own attendance history.
     # This avoids unrelated zero rows from semesters where the student has no records.
@@ -917,25 +914,16 @@ def student_dashboard():
         .all()
     )
     for sem_id, sem_name in my_semesters:
-        my_subject_ids = [
-            sid
-            for (sid,) in db.session.query(Attendance.subject_id)
-            .join(Subject, Subject.id == Attendance.subject_id)
-            .filter(Attendance.student_id == student.id, Subject.semester_id == sem_id)
-            .distinct()
-            .all()
-        ]
-        if not my_subject_ids:
-            continue
         total_sem_sessions = (
             db.session.query(func.count(AttendanceSession.id))
-            .filter(AttendanceSession.subject_id.in_(my_subject_ids))
+            .filter(AttendanceSession.semester_id == sem_id)
             .scalar()
             or 0
         )
         present_sem = (
             db.session.query(func.count(Attendance.id))
-            .filter(Attendance.student_id == student.id, Attendance.subject_id.in_(my_subject_ids))
+            .join(Subject, Subject.id == Attendance.subject_id)
+            .filter(Attendance.student_id == student.id, Subject.semester_id == sem_id)
             .scalar()
             or 0
         )
@@ -959,7 +947,6 @@ def student_dashboard():
         subjects=subjects,
         active_session_by_subject=active_session_by_subject,
         marked_session_ids=marked_session_ids,
-        my_attendance=my_attendance,
         subject_percentages=subject_percentages,
         overall_percentage=overall_percentage,
         semester_percentage_report=semester_percentage_report,
@@ -1002,43 +989,12 @@ def teacher_dashboard():
         .all()
     )
 
-    filter_semester = request.args.get("semester_id", type=int)
-    filter_subject = request.args.get("subject_id", type=int)
     student_filter_semester = request.args.get("student_semester_id", type=int)
     allowed_semester_ids = {sem.id for sem in semesters}
-    if filter_semester and filter_semester not in allowed_semester_ids:
-        filter_semester = None
     if student_filter_semester and student_filter_semester not in allowed_semester_ids:
         student_filter_semester = None
-    if filter_subject:
-        filter_subject_row = db.session.query(Subject).filter(Subject.id == filter_subject).first()
-        if not filter_subject_row:
-            filter_subject = None
-        elif filter_semester and filter_subject_row.semester_id != filter_semester:
-            filter_subject = None
-        elif teacher_subject_ids and filter_subject_row.id not in teacher_subject_ids:
-            filter_subject = None
 
-    attendance_query = (
-        db.session.query(Attendance, AttendanceSession, Subject, Student, User, Semester)
-        .join(AttendanceSession, AttendanceSession.id == Attendance.session_id)
-        .join(Subject, Subject.id == Attendance.subject_id)
-        .join(Student, Student.id == Attendance.student_id)
-        .join(User, User.id == Student.user_id)
-        .join(Semester, Semester.id == Subject.semester_id)
-        .filter(AttendanceSession.teacher_id == teacher.id)
-    )
-
-    if filter_semester:
-        attendance_query = attendance_query.filter(Subject.semester_id == filter_semester)
-    if filter_subject:
-        attendance_query = attendance_query.filter(Attendance.subject_id == filter_subject)
-    if teacher_subject_ids:
-        attendance_query = attendance_query.filter(Subject.id.in_(teacher_subject_ids))
-
-    attendance_records = attendance_query.order_by(
-        Semester.id.asc(), Attendance.date.desc(), Attendance.time.desc()
-    ).all()
+    show_status = request.args.get("show_status", "").strip() == "1"
     teacher_students_query = (
         db.session.query(Student, User, Semester)
         .join(User, User.id == Student.user_id)
@@ -1055,7 +1011,7 @@ def teacher_dashboard():
             teacher_students_query = teacher_students_query.filter(Student.semester_id.in_(teacher_semester_ids))
         else:
             teacher_students_query = teacher_students_query.filter(Student.id == -1)
-    teacher_students = teacher_students_query.order_by(Semester.id.asc(), User.name.asc()).all()
+    teacher_students = teacher_students_query.order_by(func.lower(User.name).asc(), Student.roll_no.asc()).all()
     attendance_date_param = (request.args.get("attendance_date") or "").strip()
     attendance_date_selected = date.today()
     if attendance_date_param:
@@ -1078,33 +1034,30 @@ def teacher_dashboard():
         .all()
     )
 
-    attendance_today_query = (
-        db.session.query(
-            Attendance.student_id,
-            Attendance.time,
-            Subject.name.label("subject_name"),
-        )
-        .join(AttendanceSession, AttendanceSession.id == Attendance.session_id)
-        .join(Subject, Subject.id == Attendance.subject_id)
-        .filter(
-            AttendanceSession.teacher_id == teacher.id,
-            Attendance.date == attendance_date_selected,
-        )
-    )
-    if filter_semester:
-        attendance_today_query = attendance_today_query.filter(AttendanceSession.semester_id == filter_semester)
-    if filter_subject:
-        attendance_today_query = attendance_today_query.filter(Attendance.subject_id == filter_subject)
-
-    attendance_today_records = attendance_today_query.order_by(Attendance.time.asc()).all()
     attendance_by_student_on_date = defaultdict(list)
-    for student_id, attendance_time, subject_name in attendance_today_records:
-        formatted_time = (
-            attendance_time.strftime("%I:%M %p") if attendance_time else ""
+    if show_status:
+        attendance_today_query = (
+            db.session.query(
+                Attendance.student_id,
+                Attendance.time,
+                Subject.name.label("subject_name"),
+            )
+            .join(AttendanceSession, AttendanceSession.id == Attendance.session_id)
+            .join(Subject, Subject.id == Attendance.subject_id)
+            .filter(
+                AttendanceSession.teacher_id == teacher.id,
+                Attendance.date == attendance_date_selected,
+            )
         )
-        attendance_by_student_on_date[student_id].append(
-            {"subject": subject_name, "time": formatted_time}
-        )
+
+        attendance_today_records = attendance_today_query.order_by(Attendance.time.asc()).all()
+        for student_id, attendance_time, subject_name in attendance_today_records:
+            formatted_time = (
+                attendance_time.strftime("%I:%M %p") if attendance_time else ""
+            )
+            attendance_by_student_on_date[student_id].append(
+                {"subject": subject_name, "time": formatted_time}
+            )
 
     student_attendance_summary = []
     for student, student_user, sem in teacher_students:
@@ -1120,50 +1073,36 @@ def teacher_dashboard():
                 "daily_records": attendance_by_student_on_date.get(student.id, []),
             }
         )
-    student_attendance_calendar = sorted(
-        student_attendance_summary,
-        key=lambda row: (
-            0 if row["daily_records"] else 1,
-            row["semester"].id,
-            (row["user"].name or "").strip().lower(),
-            (row["student"].roll_no or "").strip().upper(),
-        ),
-    )
+    student_attendance_calendar = []
+    attendance_present_count = 0
+    attendance_absent_count = 0
     total_students_shown = len(student_attendance_summary)
-    attendance_present_count = sum(1 for row in student_attendance_summary if row["daily_records"])
-    attendance_absent_count = total_students_shown - attendance_present_count
-    filtered_subjects = subjects
-    if filter_semester:
-        filtered_subjects = [(subject, sem) for subject, sem in subjects if sem.id == filter_semester]
+    if show_status:
+        student_attendance_calendar = sorted(
+            student_attendance_summary,
+            key=lambda row: (
+                0 if row["daily_records"] else 1,
+                row["semester"].id,
+                (row["user"].name or "").strip().lower(),
+                (row["student"].roll_no or "").strip().upper(),
+            ),
+        )
+        attendance_present_count = sum(1 for row in student_attendance_summary if row["daily_records"])
+        attendance_absent_count = total_students_shown - attendance_present_count
 
-    subjects_by_semester = []
-    filtered_subjects_by_semester = []
     start_subject_map = {}
     for sem in semesters:
         sem_subjects = [subject for subject, s in subjects if s.id == sem.id]
-        if sem_subjects:
-            subjects_by_semester.append((sem, sem_subjects))
         start_subject_map[str(sem.id)] = [{"id": subject.id, "name": subject.name} for subject in sem_subjects]
-
-        sem_filtered_subjects = [subject for subject, s in filtered_subjects if s.id == sem.id]
-        if sem_filtered_subjects:
-            filtered_subjects_by_semester.append((sem, sem_filtered_subjects))
 
     return render_template(
         "teacher_dashboard.html",
         user=user,
-        subjects=subjects,
-        filtered_subjects=filtered_subjects,
-        subjects_by_semester=subjects_by_semester,
-        filtered_subjects_by_semester=filtered_subjects_by_semester,
         start_subject_map=start_subject_map,
         semesters=semesters,
         active_sessions=active_sessions,
-        attendance_records=attendance_records,
         teacher_students=teacher_students,
         student_filter_semester=student_filter_semester,
-        filter_semester=filter_semester,
-        filter_subject=filter_subject,
         student_attendance_summary=student_attendance_summary,
         student_attendance_calendar=student_attendance_calendar,
         attendance_date_iso=attendance_date_selected.isoformat(),
@@ -1175,8 +1114,9 @@ def teacher_dashboard():
         },
         attendance_present_count=attendance_present_count,
         attendance_absent_count=attendance_absent_count,
-        attendance_total_students=total_students_shown,
+        attendance_total_students=total_students_shown if show_status else 0,
         teacher=teacher,
+        show_status=show_status,
     )
 
 
@@ -1336,7 +1276,8 @@ def admin_dashboard():
                 "name": usr.name,
                 "roll_no": stu.roll_no,
                 "semester": sem.name,
-                "present": present,
+                "total_sessions": total_sessions,
+                "attended_sessions": present,
                 "percentage": percentage,
             }
 
@@ -1345,7 +1286,10 @@ def admin_dashboard():
         .join(User, User.id == Student.user_id)
         .join(Semester, Semester.id == Student.semester_id)
     )
-    percentage_students = percentage_students_query.order_by(User.name.asc()).all()
+    percentage_students = percentage_students_query.order_by(
+        func.lower(User.name).asc(),
+        Student.roll_no.asc(),
+    ).all()
 
     percentage_report = []
     for student, user, semester in percentage_students:
@@ -1514,6 +1458,47 @@ def clear_current_semester_data():
         f"Cleared attendance/session data for {current_semester.name}.",
         "success",
     )
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.post("/admin/semester/data/delete")
+@login_required(role="admin")
+def delete_semester_data():
+    semester_id = request.form.get("semester_id", type=int)
+    semester = db.session.get(Semester, semester_id) if semester_id else None
+    if not semester:
+        flash("Select a valid semester to delete.", "error")
+        return redirect(url_for("admin_dashboard"))
+    if semester.name not in ALLOWED_SEMESTER_NAMES:
+        flash("Only Semester 1 to Semester 6 are allowed.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    subject_ids_query = db.session.query(Subject.id).filter(Subject.semester_id == semester.id)
+    session_ids_query = db.session.query(AttendanceSession.id).filter(
+        AttendanceSession.semester_id == semester.id
+    )
+
+    Attendance.query.filter(Attendance.session_id.in_(session_ids_query)).delete(
+        synchronize_session=False
+    )
+    Attendance.query.filter(Attendance.subject_id.in_(subject_ids_query)).delete(
+        synchronize_session=False
+    )
+    AttendanceSession.query.filter_by(semester_id=semester.id).delete(synchronize_session=False)
+    TeacherSubjectMap.query.filter(TeacherSubjectMap.subject_id.in_(subject_ids_query)).delete(
+        synchronize_session=False
+    )
+    Subject.query.filter_by(semester_id=semester.id).delete(synchronize_session=False)
+    PendingStudentRegistration.query.filter_by(semester_id=semester.id).delete(
+        synchronize_session=False
+    )
+
+    students_in_semester = Student.query.filter_by(semester_id=semester.id).all()
+    for student in students_in_semester:
+        _delete_student_record(student)
+
+    db.session.commit()
+    flash(f"Deleted all data for {semester.name}.", "success")
     return redirect(url_for("admin_dashboard"))
 
 
@@ -1695,27 +1680,22 @@ def admin_delete_student_by_roll():
     return redirect(url_for("admin_dashboard"))
 
 
-@app.post("/admin/teacher/delete-by-email")
+@app.post("/admin/teacher/delete-by-id")
 @login_required(role="admin")
-def admin_delete_teacher_by_email():
-    email = request.form.get("email", "").strip().lower()
-    if not email:
-        flash("Teacher email is required.", "error")
+def admin_delete_teacher_by_teacher_id():
+    teacher_id = request.form.get("teacher_id", "").strip().upper()
+    if not teacher_id:
+        flash("Teacher ID is required.", "error")
         return redirect(url_for("admin_dashboard"))
 
-    user = User.query.filter(User.email == email, User.role == "teacher").first()
-    if not user:
-        flash("Teacher user not found for this email.", "error")
-        return redirect(url_for("admin_dashboard"))
-
-    teacher = Teacher.query.filter_by(user_id=user.id).first()
+    teacher = Teacher.query.filter_by(teacher_id=teacher_id).first()
     if not teacher:
-        flash("Teacher profile not found for this email.", "error")
+        flash("Teacher not found for this ID.", "error")
         return redirect(url_for("admin_dashboard"))
 
     _delete_teacher_record(teacher)
     db.session.commit()
-    flash("Teacher deleted successfully by email.", "success")
+    flash("Teacher deleted successfully by ID.", "success")
     return redirect(url_for("admin_dashboard"))
 
 
@@ -1880,6 +1860,7 @@ def api_admin_student_details():
                 "roll_no": stu.roll_no,
                 "name": usr.name,
                 "semester": sem.name,
+                "total_sessions": total_sessions,
                 "percentage": percentage,
                 "attended_sessions": present,
             },

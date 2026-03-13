@@ -748,3 +748,82 @@ a:hover {
         width: 24px;
     }
 }
+
+@media (max-width: 720px) {
+    .container {
+        width: min(1120px, 94vw);
+    }
+
+    .nav-wrap {
+        gap: 10px;
+    }
+
+    .college-label {
+        width: 100%;
+        justify-content: flex-start;
+        gap: 8px;
+        flex-wrap: wrap;
+        text-align: left;
+    }
+
+    .nav-links {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .nav-links a {
+        flex: 1 1 auto;
+        text-align: center;
+    }
+
+    .card {
+        padding: 16px;
+    }
+
+    .stats-card h4 {
+        font-size: 18px;
+    }
+
+    table {
+        min-width: 520px;
+    }
+}
+
+@media (max-width: 520px) {
+    main.container {
+        padding: 18px 0 32px 0;
+    }
+
+    .nav-links a {
+        width: 100%;
+        text-align: left;
+    }
+
+    .card h2,
+    .card h3 {
+        font-size: 18px;
+    }
+
+    .hero p,
+    .card p,
+    label,
+    input,
+    select,
+    button {
+        font-size: 13px;
+    }
+
+    .table-wrap {
+        border-radius: 10px;
+    }
+
+    table {
+        min-width: 420px;
+        font-size: 12.5px;
+    }
+
+    th,
+    td {
+        padding: 8px 9px;
+    }
+}
