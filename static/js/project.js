@@ -121,9 +121,9 @@ async function getCurrentLocation() {
     }
 
     const attempts = [
-        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
-        { enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 },
-        { enableHighAccuracy: false, timeout: 30000, maximumAge: Infinity },
+        { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 },
+        { enableHighAccuracy: false, timeout: 10000, maximumAge: 120000 },
+        { enableHighAccuracy: false, timeout: 10000, maximumAge: Infinity },
     ];
 
     let lastError = null;
@@ -154,7 +154,7 @@ function describeLocationOrNetworkError(error) {
     if (!error) return "Unable to capture location or connect to server.";
     if (typeof error.code === "number") {
         if (error.code === 1) {
-            return "Location permission denied. Please allow location access for 127.0.0.1 in browser site settings.";
+            return "Please enable location to mark attendance.";
         }
         if (error.code === 2) {
             return "Live location is unavailable. Turn on device Location Services (GPS), then retry.";
@@ -168,6 +168,39 @@ function describeLocationOrNetworkError(error) {
     }
     if (error.message) return error.message;
     return "Unable to capture location or connect to server.";
+}
+
+function showClientNotice(message, kind = "info", timeoutMs = 2600) {
+    if (!message) return;
+    let container = document.getElementById("client-notice-stack");
+    if (!container) {
+        container = document.createElement("div");
+        container.id = "client-notice-stack";
+        container.style.position = "fixed";
+        container.style.top = "16px";
+        container.style.right = "16px";
+        container.style.zIndex = "9999";
+        container.style.display = "flex";
+        container.style.flexDirection = "column";
+        container.style.gap = "8px";
+        document.body.appendChild(container);
+    }
+    const notice = document.createElement("div");
+    notice.textContent = message;
+    notice.style.padding = "10px 12px";
+    notice.style.borderRadius = "8px";
+    notice.style.fontSize = "14px";
+    notice.style.boxShadow = "0 6px 18px rgba(0,0,0,0.15)";
+    notice.style.background = kind === "success" ? "#1f9d55" : kind === "error" ? "#c2410c" : "#1e293b";
+    notice.style.color = "#fff";
+    notice.style.maxWidth = "320px";
+    notice.style.wordWrap = "break-word";
+    container.appendChild(notice);
+    window.setTimeout(() => {
+        notice.style.opacity = "0";
+        notice.style.transition = "opacity 0.25s ease";
+        window.setTimeout(() => notice.remove(), 260);
+    }, timeoutMs);
 }
 
 async function parseApiResponse(response) {
@@ -274,7 +307,7 @@ async function markAttendance(sessionId, buttonEl) {
         payload.longitude = location.longitude;
         payload.accuracy = location.accuracy;
     } catch (error) {
-        alert(describeLocationOrNetworkError(error));
+        showClientNotice(describeLocationOrNetworkError(error), "error");
         return;
     }
 
@@ -286,8 +319,11 @@ async function markAttendance(sessionId, buttonEl) {
         });
 
         const data = await parseApiResponse(response);
-        alert(data.message);
         if (response.ok && data.success) {
+            showClientNotice(
+                data.already_marked ? "Attendance already marked." : "Attendance marked successfully.",
+                "success"
+            );
             setMarkedAttendanceButton(buttonEl);
             if (data.already_marked) {
                 return;
@@ -295,9 +331,16 @@ async function markAttendance(sessionId, buttonEl) {
             // Keep UI consistent if page is not reloaded immediately.
             const sessionButtons = document.querySelectorAll(`[data-session-id="${sessionId}"]`);
             sessionButtons.forEach((btn) => setMarkedAttendanceButton(btn));
+        } else {
+            const message = data && data.message ? data.message : "Could not mark attendance.";
+            const friendlyMessage =
+                message && message.toLowerCase().includes("location is required")
+                    ? "Please enable location to mark attendance."
+                    : message;
+            showClientNotice(friendlyMessage, "error");
         }
     } catch (error) {
-        alert("Could not connect to server. Check internet/VPN and try again.");
+        showClientNotice("Could not connect to server. Please try again.", "error");
     }
 }
 

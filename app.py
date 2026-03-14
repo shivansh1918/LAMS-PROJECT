@@ -54,11 +54,11 @@ ALLOWED_ROLES = {"admin", "teacher", "student"}
 @app.context_processor
 def inject_lams_logo():
     candidates = [
-        "img/bareilly-college-logo.jpg",
-        "img/bareilly-college-logo.jpeg",
-        "img/bareilly-college-logo.png",
-        "img/bareilly-college-logo.webp",
-        "img/bareilly-college-logo.svg",
+        # "img/bareilly-college-logo.jpg",
+        # "img/bareilly-college-logo.jpeg",
+        # "img/bareilly-college-logo.png",
+        # "img/bareilly-college-logo.webp",
+        # "img/bareilly-college-logo.svg",
         "img/lams-logo.jpg",
         "img/lams-logo.jpeg",
         "img/lams-logo.png",
@@ -2064,7 +2064,7 @@ def mark_attendance():
     if accuracy < 0:
         accuracy = 0.0
 
-    # Strict 50-meter geofence check.
+    # Strict 50-meter geofence check with GPS accuracy tolerance.
     distance = haversine_meters(
         latitude,
         longitude,
@@ -2075,7 +2075,11 @@ def mark_attendance():
         return jsonify({"success": False, "message": "Invalid distance calculation."}), 400
 
     allowed_radius = 50.0
-    if distance > allowed_radius:
+    # Allow a small tolerance based on reported accuracy (capped).
+    max_accuracy_allowance = 30.0
+    accuracy_allowance = min(max(accuracy, 0.0), max_accuracy_allowance)
+    effective_radius = allowed_radius + accuracy_allowance
+    if distance > effective_radius:
         return jsonify(
             {
                 "success": False,
