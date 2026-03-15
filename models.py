@@ -24,34 +24,6 @@ class User(db.Model):
     last_login_at = db.Column(db.DateTime, nullable=True)
 
 
-class EmailOTP(db.Model):
-    __tablename__ = "email_otps"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    otp_code = db.Column(db.String(6), nullable=False)
-    purpose = db.Column(db.String(40), nullable=False, default="email_verification")
-    expires_at = db.Column(db.DateTime, nullable=False)
-    is_used = db.Column(db.Boolean, default=False, nullable=False)
-    created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp(), nullable=False)
-
-
-class PendingStudentRegistration(db.Model):
-    __tablename__ = "pending_student_registrations"
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(120), nullable=False)
-    email = db.Column(db.String(255), nullable=False)
-    password_hash = db.Column(db.String(255), nullable=False)
-    roll_no = db.Column(db.String(40), nullable=False)
-    mobile_no = db.Column(db.String(20), nullable=True)
-    semester_id = db.Column(db.Integer, db.ForeignKey("semesters.id"), nullable=False)
-    otp_code = db.Column(db.String(6), nullable=False)
-    expires_at = db.Column(db.DateTime, nullable=False)
-    is_used = db.Column(db.Boolean, default=False, nullable=False)
-    created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp(), nullable=False)
-
-
 class BlockedStudentRegistration(db.Model):
     __tablename__ = "blocked_student_registrations"
 

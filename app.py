@@ -1,10 +1,7 @@
 import math
 import os
-import random
-import smtplib
 from collections import defaultdict
-from datetime import date, datetime, timedelta
-from email.mime.text import MIMEText
+from datetime import date, datetime
 from functools import wraps
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
@@ -16,8 +13,6 @@ from models import (
     Attendance,
     AttendanceSession,
     BlockedStudentRegistration,
-    EmailOTP,
-    PendingStudentRegistration,
     Semester,
     Student,
     Subject,
@@ -203,107 +198,6 @@ def set_admin_registration_lock(is_locked):
     db.session.commit()
 
 
-def send_otp_email(email, otp_code):
-    smtp_server = os.environ.get("SMTP_SERVER")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
-    smtp_user = os.environ.get("SMTP_USER")
-    smtp_password = os.environ.get("SMTP_PASSWORD")
-    smtp_from = os.environ.get("SMTP_FROM", smtp_user)
-
-    if not smtp_server or not smtp_user or not smtp_password or not smtp_from:
-        return False
-
-    msg = MIMEText(f"Your verification OTP is: {otp_code}\nThis OTP is valid for 10 minutes.")
-    msg["Subject"] = "LAMS Email Verification OTP"
-    msg["From"] = smtp_from
-    msg["To"] = email
-
-    with smtplib.SMTP(smtp_server, smtp_port) as server:
-        server.starttls()
-        server.login(smtp_user, smtp_password)
-        server.send_message(msg)
-
-    return True
-
-
-def create_and_send_otp(user):
-    otp_code = f"{random.randint(0, 999999):06d}"
-    otp_row = EmailOTP(
-        user_id=user.id,
-        otp_code=otp_code,
-        purpose="email_verification",
-        expires_at=datetime.now().replace(microsecond=0) + timedelta(minutes=10),
-        is_used=False,
-    )
-    db.session.add(otp_row)
-    db.session.commit()
-
-    sent = False
-    try:
-        sent = send_otp_email(user.email, otp_code)
-    except Exception:
-        sent = False
-
-    # Dev fallback when SMTP is not configured.
-    if not sent:
-        print(f"[OTP] {user.email}: {otp_code}")
-        flash(f"SMTP not configured. Dev OTP for {user.email}: {otp_code}", "success")
-    else:
-        flash("OTP sent to your email.", "success")
-
-
-def send_mobile_otp(mobile_no, otp_code):
-    provider = os.environ.get("SMS_PROVIDER", "").strip().lower()
-    if provider != "twilio":
-        raise RuntimeError("SMS_PROVIDER must be set to 'twilio'.")
-
-    account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
-    auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
-    from_number = os.environ.get("TWILIO_PHONE_NUMBER", "").strip()
-    default_country_code = os.environ.get("DEFAULT_COUNTRY_CODE", "+91").strip()
-
-    if not all([account_sid, auth_token, from_number]):
-        raise RuntimeError(
-            "Twilio configuration missing. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER."
-        )
-
-    try:
-        from twilio.rest import Client
-    except Exception as exc:
-        raise RuntimeError("Twilio SDK not installed. Run: pip install twilio") from exc
-
-    # Convert local mobile to E.164 using default country code when '+' is not provided.
-    to_number = mobile_no.strip()
-    if not to_number.startswith("+"):
-        normalized = "".join(ch for ch in to_number if ch.isdigit())
-        if not normalized:
-            raise RuntimeError("Invalid mobile number format.")
-        to_number = f"{default_country_code}{normalized}"
-
-    client = Client(account_sid, auth_token)
-
-    try:
-        message = client.messages.create(
-            body=f"Your LAMS OTP is {otp_code}. It is valid for 10 minutes.",
-            from_=from_number,
-            to=to_number,
-        )
-    except Exception as exc:
-        raise RuntimeError(f"Failed to send OTP via Twilio: {exc}") from exc
-
-    if message.status in {"failed", "undelivered"}:
-        raise RuntimeError(f"Twilio message not delivered (status: {message.status}).")
-
-    return True
-
-
-def create_mobile_registration_otp(mobile_no):
-    otp_code = f"{random.randint(0, 999999):06d}"
-    send_mobile_otp(mobile_no, otp_code)
-    flash("OTP sent to your mobile number.", "success")
-    return otp_code
-
-
 def student_self_registration_blocked(email, roll_no):
     email = (email or "").strip().lower()
     roll_no = (roll_no or "").strip().upper()
@@ -466,83 +360,6 @@ def register_student():
     return render_template("register_student.html", semesters=semesters)
 
 
-@app.route("/register/student/verify-otp", methods=["GET", "POST"])
-def verify_student_registration_otp():
-    pending_id = session.get("pending_student_registration_id")
-    pending = db.session.get(PendingStudentRegistration, pending_id) if pending_id else None
-    if not pending:
-        flash("No pending student registration found.", "error")
-        return redirect(url_for("register_student"))
-
-    if request.method == "POST":
-        otp = request.form.get("otp", "").strip()
-        if len(otp) != 6 or not otp.isdigit():
-            flash("Enter a valid 6-digit OTP.", "error")
-            return render_template("verify_otp.html", otp_target=pending.mobile_no, otp_mode="mobile")
-
-        if pending.expires_at < datetime.now():
-            flash("OTP expired. Please request a new OTP.", "error")
-            return render_template("verify_otp.html", otp_target=pending.mobile_no, otp_mode="mobile")
-
-        if pending.is_used or otp != pending.otp_code:
-            flash("Invalid OTP.", "error")
-            return render_template("verify_otp.html", otp_target=pending.mobile_no, otp_mode="mobile")
-
-        if student_self_registration_blocked(pending.email, pending.roll_no):
-            flash("You cannot self-register. Please contact admin to add your account.", "error")
-            return redirect(url_for("register_student"))
-
-        if User.query.filter_by(email=pending.email).first():
-            flash("Email is already registered. Try login.", "error")
-            return redirect(url_for("login"))
-        if Student.query.filter_by(roll_no=pending.roll_no).first():
-            flash("Roll number already registered.", "error")
-            return redirect(url_for("register_student"))
-
-        user = User(
-            role="student",
-            name=pending.name,
-            email=pending.email,
-            password=pending.password_hash,
-            email_verified=True,
-        )
-        db.session.add(user)
-        db.session.flush()
-        db.session.add(
-            Student(
-                user_id=user.id,
-                roll_no=pending.roll_no,
-                mobile_no=None,
-                semester_id=pending.semester_id,
-                verified=True,
-            )
-        )
-        pending.is_used = True
-        db.session.commit()
-
-        session.pop("pending_student_registration_id", None)
-
-        flash("Student registration successful. Please login.", "success")
-        return redirect(url_for("login"))
-
-    return render_template("verify_otp.html", otp_target=pending.mobile_no, otp_mode="mobile")
-
-
-@app.post("/register/student/resend-otp")
-def resend_student_registration_otp():
-    pending_id = session.get("pending_student_registration_id")
-    pending = db.session.get(PendingStudentRegistration, pending_id) if pending_id else None
-    if not pending:
-        flash("No pending student registration found.", "error")
-        return redirect(url_for("register_student"))
-
-    pending.otp_code = create_mobile_registration_otp(pending.mobile_no)
-    pending.expires_at = datetime.now() + timedelta(minutes=10)
-    pending.is_used = False
-    db.session.commit()
-    return redirect(url_for("verify_student_registration_otp"))
-
-
 @app.route("/register/teacher", methods=["GET", "POST"])
 def register_teacher():
     blocked = block_registration_for_logged_in_user()
@@ -684,63 +501,6 @@ def register_admin():
     return render_template("register_admin.html")
 
 
-@app.route("/verify-otp", methods=["GET", "POST"])
-def verify_otp():
-    user_id = session.get("pending_verify_user_id")
-    user = db.session.get(User, user_id) if user_id else None
-    if not user:
-        flash("No pending verification found. Register first.", "error")
-        return redirect(url_for("register_student"))
-
-    if request.method == "POST":
-        otp = request.form.get("otp", "").strip()
-        if len(otp) != 6 or not otp.isdigit():
-            flash("Enter a valid 6-digit OTP.", "error")
-            return render_template("verify_otp.html", otp_target=user.email, otp_mode="email")
-
-        otp_row = (
-            EmailOTP.query.filter_by(
-                user_id=user.id,
-                otp_code=otp,
-                purpose="email_verification",
-                is_used=False,
-            )
-            .order_by(EmailOTP.id.desc())
-            .first()
-        )
-        if not otp_row:
-            flash("Invalid OTP.", "error")
-            return render_template("verify_otp.html", otp_target=user.email, otp_mode="email")
-
-        if otp_row.expires_at < datetime.now():
-            flash("OTP expired. Please request a new OTP.", "error")
-            return render_template("verify_otp.html", otp_target=user.email, otp_mode="email")
-
-        otp_row.is_used = True
-        user.email_verified = True
-        if user.role == "student":
-            student = Student.query.filter_by(user_id=user.id).first()
-            if student:
-                student.verified = True
-        db.session.commit()
-        session.pop("pending_verify_user_id", None)
-        flash("Email verified successfully. You can login now.", "success")
-        return redirect(url_for("login"))
-
-    return render_template("verify_otp.html", otp_target=user.email, otp_mode="email")
-
-
-@app.post("/resend-otp")
-def resend_otp():
-    user_id = session.get("pending_verify_user_id")
-    user = db.session.get(User, user_id) if user_id else None
-    if not user:
-        flash("No pending verification found.", "error")
-        return redirect(url_for("login"))
-    create_and_send_otp(user)
-    return redirect(url_for("verify_otp"))
-
-
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -786,7 +546,7 @@ def login():
         if role == "student":
             student = Student.query.filter_by(user_id=user.id).first()
             if not student or not student.verified:
-                flash("Complete OTP verification before login.", "error")
+                flash("Your student account is not verified. Please contact the admin.", "error")
                 return render_template(
                     "login.html",
                     prefill_email=email,
@@ -1489,9 +1249,6 @@ def delete_semester_data():
         synchronize_session=False
     )
     Subject.query.filter_by(semester_id=semester.id).delete(synchronize_session=False)
-    PendingStudentRegistration.query.filter_by(semester_id=semester.id).delete(
-        synchronize_session=False
-    )
 
     students_in_semester = Student.query.filter_by(semester_id=semester.id).all()
     for student in students_in_semester:
@@ -1598,12 +1355,6 @@ def _delete_student_record(student):
         block_student_self_registration(user.email, student.roll_no)
 
     Attendance.query.filter_by(student_id=student.id).delete(synchronize_session=False)
-    EmailOTP.query.filter_by(user_id=student.user_id).delete(synchronize_session=False)
-    if user:
-        PendingStudentRegistration.query.filter(
-            (PendingStudentRegistration.email == user.email)
-            | (PendingStudentRegistration.roll_no == student.roll_no)
-        ).delete(synchronize_session=False)
     db.session.delete(student)
     if user:
         db.session.delete(user)
@@ -1633,7 +1384,6 @@ def _delete_teacher_record(teacher):
     )
     TeacherSubjectMap.query.filter_by(teacher_id=teacher.id).delete(synchronize_session=False)
     AttendanceSession.query.filter_by(teacher_id=teacher.id).delete(synchronize_session=False)
-    EmailOTP.query.filter_by(user_id=teacher.user_id).delete(synchronize_session=False)
     db.session.delete(teacher)
     if user:
         db.session.delete(user)
@@ -2075,8 +1825,8 @@ def mark_attendance():
         return jsonify({"success": False, "message": "Invalid distance calculation."}), 400
 
     allowed_radius = 50.0
-    # Allow a small tolerance based on reported accuracy (capped).
-    max_accuracy_allowance = 30.0
+    # Allow tolerance based on reported accuracy (capped) to avoid false negatives.
+    max_accuracy_allowance = 75.0
     accuracy_allowance = min(max(accuracy, 0.0), max_accuracy_allowance)
     effective_radius = allowed_radius + accuracy_allowance
     if distance > effective_radius:

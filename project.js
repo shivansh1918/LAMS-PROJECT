@@ -275,26 +275,26 @@ function sendOTPRequest() {
     .catch(err => alert("Server Error: Make sure app.py is running"));
 }
 
-// 2. Verify OTP & Finalize Registration
-function verifyAndRegister() {
-    const otp = document.getElementById('r-otp').value;
-    if(!otp) return alert("Please enter the OTP sent to your email.");
+// // 2. Verify OTP & Finalize Registration
+// function verifyAndRegister() {
+//     const otp = document.getElementById('r-otp').value;
+//     if(!otp) return alert("Please enter the OTP sent to your email.");
 
-    fetch('/register', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({otp: otp})
-    })
-    .then(res => res.json())
-    .then(res => {
-        if(res.success) {
-            alert("Registration Successful! Now you can Login.");
-            showPage('login-page');
-        } else { 
-            alert("Invalid OTP! Please try again."); 
-        }
-    });
-}
+//     fetch('/register', {
+//         method: 'POST',
+//         headers: {'Content-Type': 'application/json'},
+//         body: JSON.stringify({otp: otp})
+//     })
+//     .then(res => res.json())
+//     .then(res => {
+//         if(res.success) {
+//             alert("Registration Successful! Now you can Login.");
+//             showPage('login-page');
+//         } else { 
+//             alert("Invalid OTP! Please try again."); 
+//         }
+//     });
+// }
 
 // 3. Login Logic
 function login() {

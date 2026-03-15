@@ -110,7 +110,7 @@ function waitMs(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function getCurrentLocation() {
+async function getCurrentLocation(options = {}) {
     if (!navigator.geolocation) {
         throw new Error("Geolocation is not supported by this browser.");
     }
@@ -120,11 +120,19 @@ async function getCurrentLocation() {
         );
     }
 
-    const attempts = [
-        { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 },
-        { enableHighAccuracy: false, timeout: 10000, maximumAge: 120000 },
-        { enableHighAccuracy: false, timeout: 10000, maximumAge: Infinity },
-    ];
+    const preferHighAccuracy = options.preferHighAccuracy !== false;
+    const attempts = preferHighAccuracy
+        ? [
+              { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+              { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
+              { enableHighAccuracy: false, timeout: 12000, maximumAge: 0 },
+              { enableHighAccuracy: false, timeout: 12000, maximumAge: 120000 },
+          ]
+        : [
+              { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 },
+              { enableHighAccuracy: false, timeout: 10000, maximumAge: 120000 },
+              { enableHighAccuracy: false, timeout: 10000, maximumAge: Infinity },
+          ];
 
     let lastError = null;
     for (const options of attempts) {
@@ -238,7 +246,7 @@ async function startTeacherSession() {
     const payload = { subject_id: Number(subjectId) };
     try {
         // GPS is mandatory for teacher session start; abort if permission/location fails.
-        const location = await getCurrentLocation();
+        const location = await getCurrentLocation({ preferHighAccuracy: true });
         if (
             !Number.isFinite(location.latitude) ||
             !Number.isFinite(location.longitude) ||
@@ -302,7 +310,7 @@ function setMarkedAttendanceButton(buttonEl) {
 async function markAttendance(sessionId, buttonEl) {
     const payload = { session_id: Number(sessionId) };
     try {
-        const location = await getCurrentLocation();
+        const location = await getCurrentLocation({ preferHighAccuracy: true });
         payload.latitude = location.latitude;
         payload.longitude = location.longitude;
         payload.accuracy = location.accuracy;
