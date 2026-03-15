@@ -1625,6 +1625,7 @@ def start_session():
     subject_id = data.get("subject_id")
     latitude = data.get("latitude")
     longitude = data.get("longitude")
+    accuracy = data.get("accuracy")
 
     if subject_id in (None, ""):
         return jsonify({"success": False, "message": "Subject is required."}), 400
@@ -1652,6 +1653,24 @@ def start_session():
             return jsonify({"success": False, "message": "Invalid location values."}), 400
         if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
             return jsonify({"success": False, "message": "Invalid location coordinates."}), 400
+    try:
+        accuracy = float(accuracy) if accuracy not in (None, "") else 0.0
+    except (TypeError, ValueError):
+        accuracy = 0.0
+    if accuracy < 0:
+        accuracy = 0.0
+    # Prevent sessions from starting with very poor GPS accuracy (e.g., IP-based location).
+    max_teacher_accuracy = 150.0
+    if accuracy and accuracy > max_teacher_accuracy:
+        return jsonify(
+            {
+                "success": False,
+                "message": (
+                    "Location accuracy is too low to start a session. "
+                    "Please enable GPS/location services and try again."
+                ),
+            }
+        ), 400
 
     teacher = Teacher.query.filter_by(user_id=session["user_id"]).first()
     subject = Subject.query.filter_by(id=subject_id, status=True).first()
@@ -1685,6 +1704,7 @@ def start_session():
         is_active=True,
         latitude=latitude,
         longitude=longitude,
+        location_accuracy=accuracy,
         location_enforced=True,
     )
     db.session.add(new_session)
@@ -1825,9 +1845,11 @@ def mark_attendance():
         return jsonify({"success": False, "message": "Invalid distance calculation."}), 400
 
     allowed_radius = 50.0
-    # Allow tolerance based on reported accuracy (capped) to avoid false negatives.
-    max_accuracy_allowance = 75.0
-    accuracy_allowance = min(max(accuracy, 0.0), max_accuracy_allowance)
+    # Allow tolerance based on both teacher + student accuracy (capped) to avoid false negatives.
+    max_accuracy_allowance = 100.0
+    teacher_accuracy = float(active_session.location_accuracy or 0.0)
+    combined_accuracy = math.sqrt((accuracy or 0.0) ** 2 + (teacher_accuracy or 0.0) ** 2)
+    accuracy_allowance = min(max(combined_accuracy, 0.0), max_accuracy_allowance)
     effective_radius = allowed_radius + accuracy_allowance
     if distance > effective_radius:
         return jsonify(

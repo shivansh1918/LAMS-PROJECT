@@ -99,6 +99,7 @@ class AttendanceSession(db.Model):
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     latitude = db.Column(db.Float, nullable=False)
     longitude = db.Column(db.Float, nullable=False)
+    location_accuracy = db.Column(db.Float, nullable=True)
     location_enforced = db.Column(db.Boolean, default=True, nullable=False)
     attendance_verified = db.Column(db.Boolean, default=False, nullable=False)
 
@@ -156,6 +157,11 @@ def init_db(app):
             "attendance_sessions",
             "location_enforced",
             "location_enforced BOOLEAN NOT NULL DEFAULT 1",
+        )
+        _add_column_if_missing(
+            "attendance_sessions",
+            "location_accuracy",
+            "location_accuracy FLOAT",
         )
         _add_column_if_missing(
             "attendance",
