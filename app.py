@@ -1659,18 +1659,6 @@ def start_session():
         accuracy = 0.0
     if accuracy < 0:
         accuracy = 0.0
-    # Prevent sessions from starting with very poor GPS accuracy (e.g., IP-based location).
-    max_teacher_accuracy = 150.0
-    if accuracy and accuracy > max_teacher_accuracy:
-        return jsonify(
-            {
-                "success": False,
-                "message": (
-                    "Location accuracy is too low to start a session. "
-                    "Please enable GPS/location services and try again."
-                ),
-            }
-        ), 400
 
     teacher = Teacher.query.filter_by(user_id=session["user_id"]).first()
     subject = Subject.query.filter_by(id=subject_id, status=True).first()
@@ -1690,11 +1678,10 @@ def start_session():
 
     already_active = AttendanceSession.query.filter_by(
         teacher_id=teacher.id,
-        subject_id=subject.id,
         is_active=True,
     ).first()
     if already_active:
-        return jsonify({"success": False, "message": "This subject session is already active."}), 400
+        return jsonify({"success": False, "message": "Session already active."}), 400
 
     new_session = AttendanceSession(
         teacher_id=teacher.id,
@@ -1845,19 +1832,11 @@ def mark_attendance():
         return jsonify({"success": False, "message": "Invalid distance calculation."}), 400
 
     allowed_radius = 50.0
-    # Allow tolerance based on both teacher + student accuracy (capped) to avoid false negatives.
-    max_accuracy_allowance = 100.0
-    teacher_accuracy = float(active_session.location_accuracy or 0.0)
-    combined_accuracy = math.sqrt((accuracy or 0.0) ** 2 + (teacher_accuracy or 0.0) ** 2)
-    accuracy_allowance = min(max(combined_accuracy, 0.0), max_accuracy_allowance)
-    effective_radius = allowed_radius + accuracy_allowance
-    if distance > effective_radius:
+    if distance > allowed_radius:
         return jsonify(
             {
                 "success": False,
-                "message": (
-                    "Attendance not allowed. You are outside the allowed 50 meter range."
-                ),
+                "message": "You are outside the allowed range.",
             }
         ), 403
 
