@@ -110,6 +110,91 @@ function waitMs(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function captureLocation({
+    preferHighAccuracy = true,
+    targetAccuracy = 30,
+    timeoutMs = 20000,
+} = {}) {
+    if (!navigator.geolocation) {
+        throw new Error("Geolocation is not supported by this browser.");
+    }
+    if (!window.isSecureContext) {
+        throw new Error(
+            "Location is blocked on insecure pages. Open the app on localhost/127.0.0.1 or HTTPS."
+        );
+    }
+
+    return new Promise((resolve, reject) => {
+        let watchId = null;
+        let timer = null;
+        let bestLocation = null;
+        let settled = false;
+
+        const cleanup = () => {
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+            }
+            if (timer) {
+                clearTimeout(timer);
+                timer = null;
+            }
+        };
+
+        const finish = (location) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve(location);
+        };
+
+        const fail = (error) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(error);
+        };
+
+        const success = (position) => {
+            const accuracy = position.coords.accuracy || 0;
+            const location = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy,
+            };
+            if (!bestLocation || accuracy < bestLocation.accuracy) {
+                bestLocation = location;
+            }
+            if (!targetAccuracy || (accuracy && accuracy <= targetAccuracy)) {
+                finish(location);
+            }
+        };
+
+        const failure = (error) => {
+            fail(error);
+        };
+
+        try {
+            watchId = navigator.geolocation.watchPosition(success, failure, {
+                enableHighAccuracy: preferHighAccuracy,
+                maximumAge: 0,
+                timeout: timeoutMs,
+            });
+        } catch (error) {
+            fail(error);
+            return;
+        }
+
+        timer = setTimeout(() => {
+            if (bestLocation) {
+                finish(bestLocation);
+            } else {
+                fail(new Error("Unable to capture location. Please retry."));
+            }
+        }, timeoutMs);
+    });
+}
+
 async function getCurrentLocation(options = {}) {
     if (!navigator.geolocation) {
         throw new Error("Geolocation is not supported by this browser.");
@@ -255,7 +340,11 @@ async function startTeacherSession(buttonEl) {
 
     const payload = { subject_id: Number(subjectId) };
     try {
-        const location = await getCurrentLocation({ preferHighAccuracy: true });
+        const location = await captureLocation({
+            preferHighAccuracy: true,
+            targetAccuracy: 40,
+            timeoutMs: 20000,
+        });
         if (
             !Number.isFinite(location.latitude) ||
             !Number.isFinite(location.longitude) ||
@@ -326,7 +415,11 @@ async function markAttendance(sessionId, buttonEl) {
         buttonEl.disabled = true;
     }
     try {
-        const location = await getCurrentLocation({ preferHighAccuracy: true });
+        const location = await captureLocation({
+            preferHighAccuracy: true,
+            targetAccuracy: 30,
+            timeoutMs: 20000,
+        });
         payload.latitude = location.latitude;
         payload.longitude = location.longitude;
         payload.accuracy = location.accuracy;
