@@ -1836,7 +1836,7 @@ def mark_attendance():
         return jsonify(
             {
                 "success": False,
-                "message": "You are outside the allowed range.",
+                "message": "Attendance not allowed. You are outside the allowed 50 meter range.",
             }
         ), 403
 

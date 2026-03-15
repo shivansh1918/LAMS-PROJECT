@@ -234,18 +234,27 @@ async function parseApiResponse(response) {
     return { success: false, message: text || "Unexpected server response." };
 }
 
-async function startTeacherSession() {
+async function startTeacherSession(buttonEl) {
     const subjectSelect = document.getElementById("subject_id");
     const subjectId = subjectSelect ? subjectSelect.value : "";
+    const startButton = buttonEl || null;
+    if (startButton) {
+        startButton.disabled = true;
+    }
+    const reenableStartButton = () => {
+        if (startButton) {
+            startButton.disabled = false;
+        }
+    };
 
     if (!subjectId) {
         alert("Please select a subject first.");
+        reenableStartButton();
         return;
     }
 
     const payload = { subject_id: Number(subjectId) };
     try {
-        // GPS is mandatory for teacher session start; abort if permission/location fails.
         const location = await getCurrentLocation({ preferHighAccuracy: true });
         if (
             !Number.isFinite(location.latitude) ||
@@ -256,6 +265,7 @@ async function startTeacherSession() {
             location.longitude > 180
         ) {
             alert("Could not get valid GPS coordinates. Please enable location and try again.");
+            reenableStartButton();
             return;
         }
         payload.latitude = location.latitude;
@@ -263,6 +273,7 @@ async function startTeacherSession() {
         payload.accuracy = location.accuracy;
     } catch (error) {
         alert(describeLocationOrNetworkError(error));
+        reenableStartButton();
         return;
     }
 
@@ -280,6 +291,8 @@ async function startTeacherSession() {
         }
     } catch (error) {
         alert("Could not connect to server. Check internet/VPN and try again.");
+    } finally {
+        reenableStartButton();
     }
 }
 
@@ -309,6 +322,9 @@ function setMarkedAttendanceButton(buttonEl) {
 
 async function markAttendance(sessionId, buttonEl) {
     const payload = { session_id: Number(sessionId) };
+    if (buttonEl) {
+        buttonEl.disabled = true;
+    }
     try {
         const location = await getCurrentLocation({ preferHighAccuracy: true });
         payload.latitude = location.latitude;
@@ -316,6 +332,9 @@ async function markAttendance(sessionId, buttonEl) {
         payload.accuracy = location.accuracy;
     } catch (error) {
         showClientNotice(describeLocationOrNetworkError(error), "error");
+        if (buttonEl) {
+            buttonEl.disabled = false;
+        }
         return;
     }
 
@@ -349,6 +368,11 @@ async function markAttendance(sessionId, buttonEl) {
         }
     } catch (error) {
         showClientNotice("Could not connect to server. Please try again.", "error");
+    }
+    finally {
+        if (buttonEl && !buttonEl.classList.contains("btn-marked")) {
+            buttonEl.disabled = false;
+        }
     }
 }
 
