@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ title or "LAMS" }}</title>
+    <title>{{ title or "LAAS - Location Access Attendance System" }}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Space+Grotesk:wght@500;700&family=Poppins:wght@500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
@@ -16,11 +16,11 @@
     <nav class="navbar">
         <div class="container nav-wrap">
             <a class="brand" href="{{ url_for('index') }}">
-                <span>LAMS</span>
+                <span class="brand-acronym">LAAS</span>
             </a>
             <span class="college-label">
-                {% if lams_logo %}
-                    <img class="college-logo college-logo-bg" src="{{ lams_logo }}" alt="College Logo">
+                {% if laas_logo %}
+                    <img class="college-logo college-logo-bg" src="{{ laas_logo }}" alt="College Logo">
                 {% endif %}
                 <span class="college-text">Bareilly College Bareilly</span>
             </span>
@@ -54,6 +54,18 @@
         {% endwith %}
         {% block content %}{% endblock %}
     </main>
+
+    <footer class="site-footer">
+        <div class="footer-content container">
+            <div class="footer-left">
+                <p class="footer-brand-text">LAAS. Bareilly College</p>
+                <p class="footer-note">Secure geofenced attendance tracking for classrooms.</p>
+            </div>
+            <div class="footer-right">
+                <a href="{{ url_for('index') }}" class="footer-link">Home</a>
+            </div>
+        </div>
+    </footer>
 
     <script src="{{ url_for('static', filename='js/project.js', v='20260307-02') }}"></script>
 </body>

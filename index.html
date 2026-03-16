@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LAMS</title>
+    <title>LAAS - Location Access Attendance System</title>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="project.css">        
@@ -13,7 +13,7 @@
 <body>
 
     <nav>
-        <div class="logo1" onclick="goHome()">🛡️ LAMS </div>
+        <div class="logo1" onclick="goHome()">🛡️ LAAS </div>
         <div class="nav-links">
             <span onclick="goHome()">Home</span>
             <span onclick="showPage('features-page')">Features</span>
@@ -25,9 +25,9 @@
 
     <div id="landing-page">
         <div class="hero">
-            <!-- <h1><span>Location Attendance</span><br>Management System</h1><br> -->
+            <!-- <h1><span>Location Access</span><br>Attendance System</h1><br> -->
             <h1>
-                <span1>Location Attendance</span><br>Management System
+                <span1>Location Access</span><br>Attendance System
             </h1><br>
 
             <h1>
@@ -267,7 +267,7 @@
             if (user) {
                 localStorage.setItem('currentUser', JSON.stringify(user));
                 resumeDashboard();
-            } else if (email === "admin@lams.com" && pass === "admin123" && currentAuthRole === 'admin') {
+            } else if (email === "admin@laas.com" && pass === "admin123" && currentAuthRole === 'admin') {
                 localStorage.setItem('currentUser', JSON.stringify({ name: 'Super Admin', role: 'admin' }));
                 loadAdmin();
             } else {

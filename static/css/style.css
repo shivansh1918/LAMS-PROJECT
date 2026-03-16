@@ -96,8 +96,9 @@ main {
 
 .brand {
     display: inline-flex;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
     font-family: "Space Grotesk", sans-serif;
     text-decoration: none;
     color: #e9f6ff;
@@ -105,6 +106,18 @@ main {
     letter-spacing: 0.04em;
     font-weight: 700;
     position: relative;
+}
+
+.brand-acronym {
+    font-size: 24px;
+    letter-spacing: 0.2em;
+}
+
+.brand-full {
+    font-size: 10px;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: #98aed5;
 }
 
 .brand-logo {
@@ -271,6 +284,83 @@ main.container {
     align-items: center;
 }
 
+.hero-copy {
+    text-align: center;
+    padding-top: 10px;
+}
+
+.hero-copy--centered {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.hero-heading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.hero-main-title {
+    font-size: clamp(34px, 5vw, 54px);
+    font-family: "Poppins", "Space Grotesk", sans-serif;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: 0.08em;
+    line-height: 1.1;
+}
+
+.hero-main-title span {
+    display: block;
+    line-height: 1.2;
+}
+
+.hero-subtitle--wide {
+    font-size: 18px;
+    margin: 10px auto 14px;
+}
+
+.hero-actions.hero-actions--center {
+    justify-content: center;
+    gap: 16px;
+}
+
+.hero-actions a button {
+    min-width: 180px;
+}
+
+.hero-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px 28px;
+    font-size: 16px;
+    font-weight: 700;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+    box-shadow: 0 12px 24px rgba(8, 20, 50, 0.4);
+}
+
+.hero-btn-primary {
+    background: linear-gradient(95deg, var(--accent), var(--accent-2));
+    color: #021527;
+}
+
+.hero-btn-secondary {
+    background: rgba(255, 255, 255, 0.08);
+    color: #e9f6ff;
+    border: 1px solid rgba(132, 156, 219, 0.35);
+}
+
+.hero-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 16px 26px rgba(8, 20, 50, 0.5);
+}
+
 .modern-hero .site-title {
     font-size: clamp(30px, 4.8vw, 50px);
     letter-spacing: 0.015em;
@@ -285,6 +375,13 @@ main.container {
     margin-top: 8px;
     font-size: 15px;
     line-height: 1.6;
+}
+
+.home-hero-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 28px;
+    align-items: center;
 }
 
 .hero-actions {
@@ -354,6 +451,53 @@ main.container {
 
 .auth-strip.compact {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.metrics-section {
+    border: 1px solid rgba(68, 167, 255, 0.24);
+    background:
+        linear-gradient(160deg, rgba(7, 14, 28, 0.85), rgba(10, 20, 38, 0.85)),
+        rgba(7, 14, 28, 0.65);
+    padding: 18px 20px 20px;
+}
+
+.section-heading {
+    margin-bottom: 18px;
+}
+
+.section-heading h2 {
+    margin: 0;
+    font-size: 26px;
+}
+
+.section-heading p {
+    margin: 6px 0 0;
+    color: #b4ccef;
+}
+
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.metric-card {
+    border: 1px solid rgba(132, 156, 219, 0.25);
+    border-radius: 14px;
+    padding: 12px 14px;
+    background: rgba(10, 18, 37, 0.68);
+    text-align: left;
+}
+
+.metric-card h3 {
+    margin: 0;
+    font-size: 28px;
+    color: #e4f7ff;
+}
+
+.metric-card p {
+    margin-top: 6px;
+    color: #9cb0d9;
 }
 
 .modern-banner {
@@ -476,6 +620,12 @@ main.container {
         linear-gradient(140deg, rgba(12, 24, 47, 0.92), rgba(8, 16, 33, 0.72));
 }
 
+.home-cta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+}
+
 .modern-cta h3 {
     margin: 0 0 6px;
 }
@@ -520,6 +670,59 @@ main.container {
     backdrop-filter: blur(10px);
 }
 
+.site-footer {
+    padding: 26px 0;
+    border-top: 1px solid rgba(132, 156, 219, 0.25);
+    background: rgba(4, 8, 18, 0.9);
+    margin-top: 12px;
+}
+
+.footer-content {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+    color: #a7b9da;
+}
+
+.footer-left {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.footer-brand-text {
+    margin: 0;
+    font-size: 14px;
+    color: #e9f6ff;
+    font-weight: 600;
+}
+
+.footer-note {
+    margin: 0;
+    font-size: 12px;
+    color: #9ab4e6;
+}
+
+.footer-right {
+    display: flex;
+    align-items: center;
+}
+
+.footer-link {
+    font-size: 13px;
+    color: #8eb7ff;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    text-decoration: none;
+}
+
+.footer-link:hover {
+    color: #e9f6ff;
+}
+
 .card h2,
 .card h3 {
     margin-top: 0;
@@ -536,6 +739,26 @@ main.container {
 .auth-card {
     max-width: 500px;
     margin: 26px auto;
+}
+
+.login-hero {
+    border: 1px solid rgba(68, 167, 255, 0.3);
+    background:
+        linear-gradient(160deg, rgba(12, 24, 47, 0.92), rgba(8, 16, 33, 0.72)),
+        rgba(10, 18, 35, 0.8);
+    text-align: center;
+    padding: 20px;
+    margin-bottom: 18px;
+}
+
+.login-hero h2 {
+    margin: 6px 0 4px;
+    font-family: "Space Grotesk", sans-serif;
+}
+
+.login-card {
+    max-width: 520px;
+    margin: 0 auto 32px;
 }
 
 .row {
@@ -682,6 +905,67 @@ main.container {
     margin: 6px 0 0;
     color: #9ab4e6;
     font-size: 13px;
+}
+
+.feature-section {
+    border: 1px solid rgba(68, 167, 255, 0.25);
+    background: rgba(10, 18, 36, 0.72);
+    padding: 20px;
+}
+
+.home-feature-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+}
+
+.home-feature-grid .feature-box {
+    border-color: rgba(40, 215, 192, 0.28);
+    background: rgba(9, 16, 33, 0.68);
+}
+
+.process-section {
+    border: 1px solid rgba(40, 215, 192, 0.28);
+    background: rgba(8, 16, 30, 0.72);
+    padding: 18px;
+}
+
+.process-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+    margin-top: 12px;
+}
+
+.process-card {
+    border: 1px solid rgba(132, 156, 219, 0.25);
+    border-radius: 14px;
+    padding: 14px;
+    background: rgba(10, 18, 35, 0.72);
+}
+
+.process-card h4 {
+    margin: 10px 0 6px;
+    font-size: 16px;
+}
+
+.process-card p {
+    margin: 0;
+    color: #b7c9ee;
+    font-size: 14px;
+}
+
+.process-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid rgba(40, 215, 192, 0.45);
+    color: #d7fbff;
+    font-weight: 700;
+    margin-bottom: 10px;
+    background: rgba(40, 215, 192, 0.15);
 }
 
 .admin-toolbar {

@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: flask-lams
+    name: flask-laas
     runtime: python311
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app

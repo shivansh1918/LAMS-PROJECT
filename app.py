@@ -34,7 +34,7 @@ if database_url and database_url.startswith("postgres://"):
     # Fix deprecated postgresql:// scheme
     database_url = database_url.replace("postgres://", "postgresql://", 1)
 
-app.config["SQLALCHEMY_DATABASE_URI"] = database_url or "sqlite:///lams.db"
+app.config["SQLALCHEMY_DATABASE_URI"] = database_url or "sqlite:///laas.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 
@@ -47,23 +47,23 @@ ALLOWED_ROLES = {"admin", "teacher", "student"}
 
 
 @app.context_processor
-def inject_lams_logo():
+def inject_laas_logo():
     candidates = [
         # "img/bareilly-college-logo.jpg",
         # "img/bareilly-college-logo.jpeg",
         # "img/bareilly-college-logo.png",
         # "img/bareilly-college-logo.webp",
         # "img/bareilly-college-logo.svg",
-        "img/lams-logo.jpg",
-        "img/lams-logo.jpeg",
-        "img/lams-logo.png",
-        "img/lams-logo.webp",
+        "img/laas-logo.jpg",
+        "img/laas-logo.jpeg",
+        "img/laas-logo.png",
+        "img/laas-logo.webp",
     ]
     for rel_path in candidates:
         abs_path = os.path.join(app.static_folder, rel_path.replace("/", os.sep))
         if os.path.exists(abs_path):
-            return {"lams_logo": url_for("static", filename=rel_path)}
-    return {"lams_logo": ""}
+            return {"laas_logo": url_for("static", filename=rel_path)}
+    return {"laas_logo": ""}
 
 
 @app.template_filter("fmt_last_login")

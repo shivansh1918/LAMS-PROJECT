@@ -1,100 +1,115 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card home-hero home-hero-premium modern-hero">
-    <div class="hero-grid">
-        <div>
-            <p class="hero-tag">Smart Campus Platform</p>
-            <h1 class="site-title">Location Attendance Management System</h1>
-            <p class="hero-subtitle">Bareilly College - Built for fast, accurate classroom flow.</p>
-            <p class="hero-desc">Track attendance with secure geo-fencing, live sessions, and clean dashboards built for students, teachers, and admins.</p>
-            <div class="hero-actions">
-                <a href="{{ url_for('login') }}"><button>Login</button></a>
-                <a href="{{ url_for('register_student') }}"><button class="btn-secondary">Student Register</button></a>
+<section class="card home-hero modern-hero hero-surface">
+    <div class="home-hero-grid">
+        <div class="hero-copy hero-copy--centered">
+            <div class="hero-heading">
+                <p class="hero-tag">Smart Campus Platform</p>
+                <h1 class="hero-main-title">
+                    <span>Location Access</span>
+                    <span>Attendance System</span>
+                </h1>
+            </div>
+            <p class="hero-subtitle hero-subtitle--wide">Bareilly College · Precise attendance from every hall, lab, and campus zone.</p>
+            <p class="hero-desc">
+                LAAS empowers admins, teachers, and students with geo-fenced attendance, live session control, and transparent reporting.
+            </p>
+            <div class="hero-actions hero-actions--center">
+                <a href="{{ url_for('login') }}"><button class="hero-btn hero-btn-primary">Login</button></a>
+                <a href="{{ url_for('register_student') }}"><button class="hero-btn hero-btn-secondary">Student Register</button></a>
             </div>
             <div class="hero-pills">
-                <span>50m Geo-Fence</span>
-                <span>Live Sessions</span>
-                <span>Verified Records</span>
-            </div>
-        </div>
-        <div class="hero-panel">
-            <div class="hero-stat">
-                <span class="stat-label">Instant Verification</span>
-                <span class="stat-value">Real-time</span>
-            </div>
-            <div class="hero-stat">
-                <span class="stat-label">Role Dashboards</span>
-                <span class="stat-value">3</span>
-            </div>
-            <div class="hero-cta-card">
-                <h3>Register in minutes</h3>
-                <p>Role-based onboarding with guided forms and secure access.</p>
-                <div class="auth-strip compact">
-                    <a href="{{ url_for('register_student') }}"><button>Student</button></a>
-                    <a href="{{ url_for('register_teacher') }}"><button class="btn-secondary">Teacher</button></a>
-                    <a href="{{ url_for('register_admin') }}"><button class="btn-secondary">Admin</button></a>
-                </div>
+                <span>50-meter geofence</span>
+                <span>Live session control</span>
+                <span>Verified reports</span>
             </div>
         </div>
     </div>
 </section>
 
-<h2 class="feature-title">Features</h2>
-<section class="feature-grid modern-feature-grid">
-    <div class="card feature-box">
-        <h3>Student Attendance</h3>
-        <p>Semester-wise subjects, live session tracking, and 50-meter geofence validation before attendance mark.</p>
+<section class="card metrics-section">
+    <div class="section-heading">
+        <h2>Trusted attendance insight</h2>
+        <p>LAAS keeps every location, session, and verification detail visible to campus roles.</p>
     </div>
-    <div class="card feature-box">
-        <h3>Teacher Session</h3>
-        <p>Start subject sessions with live location and verify submitted attendance records from teacher dashboard.</p>
-    </div>
-    <div class="card feature-box">
-        <h3>Subject Control</h3>
-        <p>Admin can add and manage subjects for each semester with centralized control.</p>
-    </div>
-    <div class="card feature-box">
-        <h3>Admin Management</h3>
-        <p>Manage users, verify attendance, clear semester data, and control records with admin-only actions.</p>
-    </div>
-    <div class="card feature-box">
-        <h3>Analytics & Reports</h3>
-        <p>View semester-wise attendance percentages, subject reports, and filtered records for decision making.</p>
-    </div>
-    <div class="card feature-box">
-        <h3>Secure Verification</h3>
-        <p>Location validation ensures attendance is recorded only within the allowed 50-meter range.</p>
+    <div class="metrics-grid">
+        <article class="metric-card">
+            <h3>50 m</h3>
+            <p>Strict geofence keeps attendance marking limited to classrooms.</p>
+        </article>
+        <article class="metric-card">
+            <h3>3 dashboards</h3>
+            <p>Admin, teacher, and student flows show only what matters to the role.</p>
+        </article>
+        <article class="metric-card">
+            <h3>Live sync</h3>
+            <p>Attendance is verified instantly with GPS accuracy and session locking.</p>
+        </article>
+        <article class="metric-card">
+            <h3>Audit ready</h3>
+            <p>Location stamps and evidence keep records transparent for review.</p>
+        </article>
     </div>
 </section>
 
-<section class="card modern-steps">
-    <h3>How it works</h3>
-    <div class="steps-grid">
-        <div class="step-card">
-            <span class="step-badge">01</span>
-            <h4>Start a session</h4>
-            <p>Teachers open a subject session with live GPS coordinates.</p>
+<section class="card feature-section">
+    <h2 class="feature-title">LAAS capabilities</h2>
+    <div class="feature-grid modern-feature-grid home-feature-grid">
+        <div class="card feature-box">
+            <h3>Smart attendance</h3>
+            <p>Geo-fence validation with instant marking, approvals, and safeguards.</p>
         </div>
-        <div class="step-card">
-            <span class="step-badge">02</span>
-            <h4>Mark attendance</h4>
-            <p>Students confirm location within 50 meters to mark.</p>
+        <div class="card feature-box">
+            <h3>Teacher control</h3>
+            <p>Sessions start only with live GPS data so students mark attendance in time.</p>
         </div>
-        <div class="step-card">
-            <span class="step-badge">03</span>
-            <h4>Review & report</h4>
-            <p>Admins track attendance trends and manage records.</p>
+        <div class="card feature-box">
+            <h3>Admin oversight</h3>
+            <p>Add subjects, verify records, and clear outdated data with confidence.</p>
+        </div>
+        <div class="card feature-box">
+            <h3>Student clarity</h3>
+            <p>Students see only their subjects, semester, and active sessions.</p>
+        </div>
+        <div class="card feature-box">
+            <h3>Reports & analytics</h3>
+            <p>View percentages, subject summaries, and attendance history in one place.</p>
+        </div>
+        <div class="card feature-box">
+            <h3>Secure onboarding</h3>
+            <p>Guided registration with Gmail validation and role protection.</p>
         </div>
     </div>
 </section>
 
-<section class="card modern-cta">
+<section class="card process-section">
+    <h3>How LAAS works</h3>
+    <div class="process-grid">
+        <article class="process-card">
+            <span class="process-badge">01</span>
+            <h4>Teachers start a session</h4>
+            <p>Live GPS, subject, and semester lock the session with location enforcement.</p>
+        </article>
+        <article class="process-card">
+            <span class="process-badge">02</span>
+            <h4>Students mark attendance</h4>
+            <p>Geolocation, accuracy, and session controls ensure valid presence.</p>
+        </article>
+        <article class="process-card">
+            <span class="process-badge">03</span>
+            <h4>Admins review and report</h4>
+            <p>Dashboards show verified attendance, percentages, and drill-down history.</p>
+        </article>
+    </div>
+</section>
+
+<section class="card modern-cta home-cta">
     <div>
-        <h3>Ready to streamline attendance-</h3>
-        <p>Use a single system for students, teachers, and admins with reliable tracking.</p>
+        <h3>Ready to streamline attendance?</h3>
+        <p>One platform for students, teachers, and admins with reliable geo-access control.</p>
     </div>
     <div class="cta-actions">
-        <a href="{{ url_for('login') }}"><button>Get Started</button></a>
+        <a href="{{ url_for('login') }}"><button>Login</button></a>
         <a href="{{ url_for('register_teacher') }}"><button class="btn-secondary">Teacher Register</button></a>
     </div>
 </section>

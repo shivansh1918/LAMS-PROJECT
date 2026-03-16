@@ -113,7 +113,7 @@ function waitMs(ms) {
 async function captureLocationWithWatch({
     preferHighAccuracy = true,
     targetAccuracy = 30,
-    timeoutMs = 20000,
+    timeoutMs = 10000,
 } = {}) {
     if (!navigator.geolocation) {
         throw new Error("Geolocation is not supported by this browser.");
@@ -243,15 +243,15 @@ async function getCurrentLocation(options = {}) {
     const preferHighAccuracy = options.preferHighAccuracy !== false;
     const attempts = preferHighAccuracy
         ? [
-              { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
-              { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
-              { enableHighAccuracy: false, timeout: 12000, maximumAge: 0 },
-              { enableHighAccuracy: false, timeout: 12000, maximumAge: 120000 },
+              { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
+              { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
+              { enableHighAccuracy: false, timeout: 6000, maximumAge: 0 },
+              { enableHighAccuracy: false, timeout: 6000, maximumAge: 120000 },
           ]
         : [
-              { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 },
-              { enableHighAccuracy: false, timeout: 10000, maximumAge: 120000 },
-              { enableHighAccuracy: false, timeout: 10000, maximumAge: Infinity },
+              { enableHighAccuracy: false, timeout: 6000, maximumAge: 0 },
+              { enableHighAccuracy: false, timeout: 6000, maximumAge: 120000 },
+              { enableHighAccuracy: false, timeout: 6000, maximumAge: Infinity },
           ];
 
     let lastError = null;
