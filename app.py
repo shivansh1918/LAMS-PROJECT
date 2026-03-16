@@ -1786,16 +1786,6 @@ def mark_attendance():
     if student.semester_id != active_session.semester_id:
         return jsonify({"success": False, "message": "Semester mismatch. You cannot mark this attendance."}), 403
 
-    existing = Attendance.query.filter_by(student_id=student.id, session_id=active_session.id).first()
-    if existing:
-        return jsonify(
-            {
-                "success": True,
-                "message": "Attendance already marked for this active session.",
-                "already_marked": True,
-            }
-        ), 200
-
     # Student GPS is mandatory for marking attendance.
     has_location = latitude not in (None, "") and longitude not in (None, "")
     if not has_location:
@@ -1832,13 +1822,27 @@ def mark_attendance():
         return jsonify({"success": False, "message": "Invalid distance calculation."}), 400
 
     allowed_radius = 50.0
+    rounded_distance = round(distance, 2)
     if distance > allowed_radius:
         return jsonify(
             {
                 "success": False,
-                "message": "Attendance not allowed. You are outside the allowed 50 meter range.",
+                "message": "You are outside the allowed attendance range.",
+                "distance": rounded_distance,
+                "allowed_radius": allowed_radius,
             }
         ), 403
+
+    existing = Attendance.query.filter_by(student_id=student.id, session_id=active_session.id).first()
+    if existing:
+        return jsonify(
+            {
+                "success": True,
+                "message": "Attendance already marked for this active session.",
+                "already_marked": True,
+                "distance": rounded_distance,
+            }
+        ), 200
 
     # Auto-verified because distance check is enforced at marking time.
     record = Attendance(
@@ -1855,8 +1859,8 @@ def mark_attendance():
     db.session.add(record)
     db.session.commit()
 
-    message = f"Attendance marked successfully. Distance: {round(distance, 2)}m."
-    return jsonify({"success": True, "message": message})
+    message = f"Attendance marked successfully. Distance: {rounded_distance}m."
+    return jsonify({"success": True, "message": message, "distance": rounded_distance})
 
 
 if __name__ == "__main__":

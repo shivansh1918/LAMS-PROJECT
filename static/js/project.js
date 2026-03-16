@@ -110,7 +110,7 @@ function waitMs(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function captureLocation({
+async function captureLocationWithWatch({
     preferHighAccuracy = true,
     targetAccuracy = 30,
     timeoutMs = 20000,
@@ -193,6 +193,41 @@ async function captureLocation({
             }
         }, timeoutMs);
     });
+}
+
+async function captureLocation(options = {}) {
+    const preferHighAccuracy = options.preferHighAccuracy !== false;
+    const targetAccuracy = options.targetAccuracy ?? 30;
+    const watchConfig = {
+        ...options,
+        preferHighAccuracy,
+        targetAccuracy,
+    };
+    let fallbackLocation = null;
+
+    try {
+        const location = await getCurrentLocation({ preferHighAccuracy });
+        fallbackLocation = location;
+        if (!targetAccuracy || (Number.isFinite(location.accuracy) && location.accuracy <= targetAccuracy)) {
+            return location;
+        }
+    } catch (error) {
+        if (error && error.code === 1) {
+            throw error;
+        }
+    }
+
+    try {
+        return await captureLocationWithWatch(watchConfig);
+    } catch (watchError) {
+        if (watchError && watchError.code === 1) {
+            throw watchError;
+        }
+        if (fallbackLocation) {
+            return fallbackLocation;
+        }
+        throw watchError;
+    }
 }
 
 async function getCurrentLocation(options = {}) {
@@ -324,11 +359,22 @@ async function startTeacherSession(buttonEl) {
     const subjectId = subjectSelect ? subjectSelect.value : "";
     const startButton = buttonEl || null;
     if (startButton) {
+        if (startButton.dataset.sessionStarting === "1") {
+            return;
+        }
+        startButton.dataset.sessionStarting = "1";
         startButton.disabled = true;
+        startButton.dataset.originalLabel = startButton.textContent;
+        startButton.textContent = "Starting session...";
     }
     const reenableStartButton = () => {
         if (startButton) {
+            delete startButton.dataset.sessionStarting;
             startButton.disabled = false;
+            if (startButton.dataset.originalLabel) {
+                startButton.textContent = startButton.dataset.originalLabel;
+                delete startButton.dataset.originalLabel;
+            }
         }
     };
 
@@ -374,10 +420,15 @@ async function startTeacherSession(buttonEl) {
         });
 
         const data = await parseApiResponse(response);
-        alert(data.message);
         if (response.ok && data.success) {
+            showClientNotice(
+                data.message || "Attendance session started successfully.",
+                "success"
+            );
             window.location.reload();
+            return;
         }
+        alert(data.message);
     } catch (error) {
         alert("Could not connect to server. Check internet/VPN and try again.");
     } finally {
@@ -403,6 +454,7 @@ async function stopTeacherSession(sessionId) {
 function setMarkedAttendanceButton(buttonEl) {
     if (!buttonEl) return;
     buttonEl.disabled = true;
+    delete buttonEl.dataset.attendancePending;
     buttonEl.textContent = "Marked";
     buttonEl.classList.remove("btn-secondary");
     buttonEl.classList.add("btn-marked");
@@ -410,10 +462,27 @@ function setMarkedAttendanceButton(buttonEl) {
 }
 
 async function markAttendance(sessionId, buttonEl) {
+    if (buttonEl && buttonEl.dataset.attendancePending === "1") {
+        return;
+    }
     const payload = { session_id: Number(sessionId) };
     if (buttonEl) {
+        buttonEl.dataset.attendancePending = "1";
         buttonEl.disabled = true;
+        buttonEl.dataset.originalLabel = buttonEl.textContent;
+        buttonEl.textContent = "Marking attendance...";
     }
+    const releaseAttendanceButton = (keepDisabled = false) => {
+        if (!buttonEl) return;
+        delete buttonEl.dataset.attendancePending;
+        if (!keepDisabled) {
+            buttonEl.disabled = false;
+            if (buttonEl.dataset.originalLabel) {
+                buttonEl.textContent = buttonEl.dataset.originalLabel;
+                delete buttonEl.dataset.originalLabel;
+            }
+        }
+    };
     try {
         const location = await captureLocation({
             preferHighAccuracy: true,
@@ -425,9 +494,7 @@ async function markAttendance(sessionId, buttonEl) {
         payload.accuracy = location.accuracy;
     } catch (error) {
         showClientNotice(describeLocationOrNetworkError(error), "error");
-        if (buttonEl) {
-            buttonEl.disabled = false;
-        }
+        releaseAttendanceButton();
         return;
     }
 
@@ -446,26 +513,41 @@ async function markAttendance(sessionId, buttonEl) {
             );
             setMarkedAttendanceButton(buttonEl);
             if (data.already_marked) {
+                releaseAttendanceButton(true);
                 return;
             }
             // Keep UI consistent if page is not reloaded immediately.
             const sessionButtons = document.querySelectorAll(`[data-session-id="${sessionId}"]`);
             sessionButtons.forEach((btn) => setMarkedAttendanceButton(btn));
+            releaseAttendanceButton(true);
         } else {
             const message = data && data.message ? data.message : "Could not mark attendance.";
-            const friendlyMessage =
+            const baseMessage =
                 message && message.toLowerCase().includes("location is required")
                     ? "Please enable location to mark attendance."
                     : message;
-            showClientNotice(friendlyMessage, "error");
+            if (
+                data &&
+                data.message &&
+                data.message.toLowerCase().includes("outside the allowed attendance range") &&
+                Number.isFinite(data.distance) &&
+                Number.isFinite(data.allowed_radius)
+            ) {
+                const roundedDistance = Number(data.distance).toFixed(1);
+                const roundedRadius = Number(data.allowed_radius).toFixed(0);
+                showClientNotice(
+                    `${data.message} (current ${roundedDistance}m of ${roundedRadius}m). Move closer and try again.`,
+                    "error"
+                );
+            } else {
+                showClientNotice(baseMessage, "error");
+            }
+            releaseAttendanceButton();
         }
     } catch (error) {
         showClientNotice("Could not connect to server. Please try again.", "error");
-    }
-    finally {
-        if (buttonEl && !buttonEl.classList.contains("btn-marked")) {
-            buttonEl.disabled = false;
-        }
+        releaseAttendanceButton();
+        return;
     }
 }
 
