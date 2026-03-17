@@ -48,11 +48,11 @@ ALLOWED_ROLES = {"admin", "teacher", "student"}
 
 # Attendance geofence/GPS tuning
 # - Allowed radius: 50m (strict requirement)
-# - Buffer: allow up to 60m to reduce false negatives from GPS drift
-# - Accuracy threshold: only accept GPS fixes within ~20–30m
+# - Buffer: allow up to 70m to reduce false negatives from GPS drift
+# - Accuracy threshold: accept fixes within <= 100m (GPS can vary)
 ATTENDANCE_ALLOWED_RADIUS_M = 50.0
-ATTENDANCE_RADIUS_BUFFER_M = 10.0
-GPS_ACCURACY_ACCEPT_MAX_M = 30.0
+ATTENDANCE_RADIUS_BUFFER_M = 20.0
+GPS_ACCURACY_ACCEPT_MAX_M = 100.0
 
 
 @app.context_processor
@@ -1748,7 +1748,7 @@ def start_session():
             jsonify(
                 {
                     "success": False,
-                    "message": f"GPS accuracy too low (must be <= {int(GPS_ACCURACY_ACCEPT_MAX_M)}m). Wait a few seconds and retry near a window/outdoor.",
+                    "message": f"GPS accuracy too low (must be <= {int(GPS_ACCURACY_ACCEPT_MAX_M)}m). Turn on Precise location, wait a few seconds, then retry near a window/outdoor.",
                     "teacher_accuracy": accuracy,
                 }
             ),
@@ -1790,7 +1790,7 @@ def start_session():
         longitude=longitude,
         location_accuracy=accuracy,
         location_enforced=not test_mode,
-        gps_locked=bool(test_mode or (accuracy and accuracy <= GPS_ACCURACY_ACCEPT_MAX_M)),
+        gps_locked=bool(test_mode or (accuracy and accuracy > 0 and accuracy <= GPS_ACCURACY_ACCEPT_MAX_M)),
         is_test_mode=bool(test_mode),
         device_id=device_id,
         device_fingerprint=get_device_fingerprint(),
@@ -2247,7 +2247,7 @@ def mark_attendance():
             jsonify(
                 {
                     "success": False,
-                    "message": f"GPS accuracy too low (must be <= {int(GPS_ACCURACY_ACCEPT_MAX_M)}m). Wait a few seconds and retry near a window/outdoor.",
+                    "message": f"GPS accuracy too low (must be <= {int(GPS_ACCURACY_ACCEPT_MAX_M)}m). Turn on Precise location, wait a few seconds, then retry near a window/outdoor.",
                     "student_accuracy": accuracy,
                 }
             ),

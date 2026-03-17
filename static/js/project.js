@@ -46,9 +46,9 @@ function gpsFailureMessage(error) {
 }
 
 const TEST_MODE_DEFAULT_COORDS = { latitude: 28.6139, longitude: 77.209 };
-const GPS_ACCURACY_THRESHOLD_M = 30;
+const GPS_ACCURACY_THRESHOLD_M = 100;
 const ATTENDANCE_ALLOWED_RADIUS_M = 50;
-const ATTENDANCE_GPS_BUFFER_M = 10;
+const ATTENDANCE_GPS_BUFFER_M = 20;
 const ATTENDANCE_EFFECTIVE_RADIUS_M = ATTENDANCE_ALLOWED_RADIUS_M + ATTENDANCE_GPS_BUFFER_M;
 
 function isLikelyMobileDevice() {
@@ -57,23 +57,31 @@ function isLikelyMobileDevice() {
 }
 
 async function getStrictGpsLocation({
-    retries = 4,
-    timeoutMs = 8000,
+    retries = 3,
+    timeoutMs = 10000,
     accuracyMax = GPS_ACCURACY_THRESHOLD_M,
 } = {}) {
-    // Strict: enableHighAccuracy + maximumAge=0 + reject if accuracy > accuracyMax.
+    // Strict: enableHighAccuracy + maximumAge=0 + retry if accuracy > accuracyMax.
     let lastError = null;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
         try {
-            // captureLocation uses watch as fallback, which is much more reliable than a single fast fix.
-            const loc = await captureLocation({
+            // 1) Fast fix (getCurrentPosition) with maximumAge=0 (no cache).
+            // 2) If not good enough, fall back to watchPosition to let accuracy stabilize.
+            let loc = await captureLocationFast({
                 preferHighAccuracy: true,
                 timeoutMs,
-                // Don't accept old/cached fixes when marking attendance.
-                maxAgeMs: 5000,
-                targetAccuracy: accuracyMax || 0,
+                maxAgeMs: 0,
             });
-            const accuracy = Number(loc.accuracy) || 0;
+            let accuracy = Number(loc.accuracy) || 0;
+            if (accuracyMax && Number.isFinite(accuracy) && accuracy > accuracyMax) {
+                loc = await captureLocation({
+                    preferHighAccuracy: true,
+                    timeoutMs,
+                    maxAgeMs: 0,
+                    targetAccuracy: accuracyMax || 0,
+                });
+                accuracy = Number(loc.accuracy) || 0;
+            }
             if (accuracyMax && Number.isFinite(accuracy) && accuracy > accuracyMax) {
                 const err = new Error("GPS accuracy too low");
                 err.kind = "accuracy";
@@ -89,7 +97,7 @@ async function getStrictGpsLocation({
             }
         }
         if (attempt < retries) {
-            await waitMs(450 + attempt * 250);
+            await waitMs(450 + attempt * 350);
         }
     }
     throw lastError || new Error("Unable to capture location");
@@ -573,16 +581,16 @@ async function startTeacherSession(buttonEl) {
     if (navigator.geolocation && window.isSecureContext && isMobile) {
         location = await withTimeout(
             getStrictGpsLocation({
-                retries: 4,
-                timeoutMs: 9000,
+                retries: 3,
+                timeoutMs: 10000,
                 accuracyMax: GPS_ACCURACY_THRESHOLD_M,
             }).catch(() => null),
-            9500,
+            10500,
             null
         );
         if (!location) {
             showClientNotice(
-                `Could not get an accurate GPS fix (need <= ${GPS_ACCURACY_THRESHOLD_M}m). Turn on Location Services + Wi-Fi, wait 5–10 seconds, then retry near a window/outdoor.`,
+                `Could not get a good GPS fix (need <= ${GPS_ACCURACY_THRESHOLD_M}m). Turn on Precise location + GPS + Wi‑Fi, wait 5–10 seconds, then retry near a window/outdoor.`,
                 "error",
                 4200
             );
@@ -708,7 +716,7 @@ function startTeacherLocationUpdates(sessionId) {
         try {
             const location = await getStrictGpsLocation({
                 retries: 2,
-                timeoutMs: 8000,
+                timeoutMs: 10000,
                 accuracyMax: GPS_ACCURACY_THRESHOLD_M,
             });
             const payload = {
@@ -831,16 +839,16 @@ async function markAttendance(sessionId, buttonEl) {
         if (navigator.geolocation && window.isSecureContext && isMobile) {
             location = await withTimeout(
                 getStrictGpsLocation({
-                    retries: 4,
-                    timeoutMs: 9000,
+                    retries: 3,
+                    timeoutMs: 10000,
                     accuracyMax: GPS_ACCURACY_THRESHOLD_M,
                 }).catch(() => null),
-                9500,
+                10500,
                 null
             );
             if (!location) {
                 showClientNotice(
-                    "Could not get an accurate GPS fix. Turn on Location Services + Wi-Fi, wait 5–10 seconds, then retry near a window/outdoor.",
+                    `Could not get a good GPS fix (need <= ${GPS_ACCURACY_THRESHOLD_M}m). Turn on Precise location + GPS + Wi‑Fi, wait 5–10 seconds, then retry near a window/outdoor.`,
                     "error"
                 );
                 releaseAttendanceButton();
