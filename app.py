@@ -53,6 +53,9 @@ ALLOWED_ROLES = {"admin", "teacher", "student"}
 ATTENDANCE_ALLOWED_RADIUS_M = 50.0
 ATTENDANCE_RADIUS_BUFFER_M = 20.0
 GPS_ACCURACY_ACCEPT_MAX_M = 100.0
+# Additional slack based on device-reported GPS accuracy (to reduce false “out of range” indoors).
+# Capped to avoid over-expanding the geofence.
+ATTENDANCE_ACCURACY_TOLERANCE_CAP_M = 35.0
 
 
 @app.context_processor
@@ -2268,11 +2271,16 @@ def mark_attendance():
     allowed_radius = ATTENDANCE_ALLOWED_RADIUS_M
     teacher_accuracy = max(float(getattr(active_session, "location_accuracy", 0.0) or 0.0), 0.0)
     student_accuracy = max(float(accuracy or 0.0), 0.0)
-    # Allow a small buffer to reduce false negatives from GPS drift.
-    effective_radius = allowed_radius + ATTENDANCE_RADIUS_BUFFER_M
+    # Base buffer reduces false negatives from GPS drift; add a capped accuracy-based tolerance
+    # because two devices can report positions that differ by >70m even when people are nearby.
+    base_radius = allowed_radius + ATTENDANCE_RADIUS_BUFFER_M
+    accuracy_tolerance = min(teacher_accuracy, ATTENDANCE_ACCURACY_TOLERANCE_CAP_M) + min(
+        student_accuracy, ATTENDANCE_ACCURACY_TOLERANCE_CAP_M
+    )
+    effective_radius = base_radius + accuracy_tolerance
     rounded_distance = round(distance, 2)
     app.logger.info(
-        "Attendance distance check | student=(%s,%s acc=%.2f) teacher=(%s,%s acc=%.2f) distance_m=%.2f radius=%.2f eff_radius=%.2f",
+        "Attendance distance check | student=(%s,%s acc=%.2f) teacher=(%s,%s acc=%.2f) distance_m=%.2f base_radius=%.2f tol=%.2f eff_radius=%.2f",
         latitude,
         longitude,
         accuracy,
@@ -2280,7 +2288,8 @@ def mark_attendance():
         session_longitude,
         getattr(active_session, "location_accuracy", 0.0) or 0.0,
         rounded_distance,
-        effective_radius,
+        base_radius,
+        accuracy_tolerance,
         effective_radius,
     )
     if teacher_latitude_client not in (None, "") and teacher_longitude_client not in (None, ""):
@@ -2305,7 +2314,11 @@ def mark_attendance():
                     "message": "You are outside the allowed attendance range.",
                     "distance": rounded_distance,
                     "allowed_radius": allowed_radius,
+                    "base_radius": base_radius,
+                    "accuracy_tolerance": accuracy_tolerance,
                     "effective_radius": effective_radius,
+                    "teacher_accuracy": teacher_accuracy,
+                    "student_accuracy": student_accuracy,
                     "student_latitude": latitude,
                     "student_longitude": longitude,
                     "teacher_latitude": session_latitude,
@@ -2322,6 +2335,10 @@ def mark_attendance():
             "already_marked": True,
             "distance": rounded_distance,
             "effective_radius": effective_radius,
+            "base_radius": base_radius,
+            "accuracy_tolerance": accuracy_tolerance,
+            "teacher_accuracy": teacher_accuracy,
+            "student_accuracy": student_accuracy,
             "student_latitude": latitude,
             "student_longitude": longitude,
             "teacher_latitude": session_latitude,
@@ -2351,6 +2368,10 @@ def mark_attendance():
             "message": message,
             "distance": rounded_distance,
             "effective_radius": effective_radius,
+            "base_radius": base_radius,
+            "accuracy_tolerance": accuracy_tolerance,
+            "teacher_accuracy": teacher_accuracy,
+            "student_accuracy": student_accuracy,
             "student_latitude": latitude,
             "student_longitude": longitude,
             "teacher_latitude": session_latitude,
