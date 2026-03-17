@@ -336,6 +336,18 @@ function describeLocationOrNetworkError(error) {
     return "Unable to capture location or connect to server.";
 }
 
+function haversineMeters(lat1, lon1, lat2, lon2) {
+    const r = 6371000;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const lat1Rad = (lat1 * Math.PI) / 180;
+    const lat2Rad = (lat2 * Math.PI) / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1Rad) * Math.cos(lat2Rad) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return r * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
 function showClientNotice(message, kind = "info", timeoutMs = 2600) {
     if (!message) return;
     let container = document.getElementById("client-notice-stack");
@@ -529,15 +541,49 @@ async function markAttendance(sessionId, buttonEl) {
             }
         }
     };
+    let teacherLocation = null;
+    try {
+        const response = await fetch(`/api/session-location?session_id=${encodeURIComponent(sessionId)}`, {
+            method: "GET",
+            headers: { "Cache-Control": "no-store" },
+        });
+        const data = await parseApiResponse(response);
+        if (!response.ok || !data || !data.active) {
+            showClientNotice((data && data.message) || "No active session.", "error");
+            releaseAttendanceButton();
+            return;
+        }
+        if (!Number.isFinite(data.lat) || !Number.isFinite(data.lng)) {
+            showClientNotice("Session location unavailable.", "error");
+            releaseAttendanceButton();
+            return;
+        }
+        teacherLocation = { latitude: data.lat, longitude: data.lng };
+        console.log("[attendance] teacher location", {
+            latitude: teacherLocation.latitude,
+            longitude: teacherLocation.longitude,
+        });
+    } catch (error) {
+        showClientNotice("Could not connect to server. Please try again.", "error");
+        releaseAttendanceButton();
+        return;
+    }
+
+    let studentLocation = null;
     try {
         const location = await captureLocationFast({
             preferHighAccuracy: true,
             timeoutMs: 10000,
             maxAgeMs: 0,
         });
-        payload.latitude = location.latitude;
-        payload.longitude = location.longitude;
-        payload.accuracy = location.accuracy;
+        studentLocation = {
+            latitude: location.latitude,
+            longitude: location.longitude,
+            accuracy: location.accuracy,
+        };
+        payload.latitude = studentLocation.latitude;
+        payload.longitude = studentLocation.longitude;
+        payload.accuracy = studentLocation.accuracy;
         console.log("[attendance] student location", {
             latitude: payload.latitude,
             longitude: payload.longitude,
@@ -545,6 +591,24 @@ async function markAttendance(sessionId, buttonEl) {
         });
     } catch (error) {
         showClientNotice(describeLocationOrNetworkError(error), "error");
+        releaseAttendanceButton();
+        return;
+    }
+
+    const distance = haversineMeters(
+        studentLocation.latitude,
+        studentLocation.longitude,
+        teacherLocation.latitude,
+        teacherLocation.longitude
+    );
+    console.log("[attendance] calculated distance (m)", distance);
+    if (!Number.isFinite(distance)) {
+        showClientNotice("Invalid distance calculation.", "error");
+        releaseAttendanceButton();
+        return;
+    }
+    if (distance > 50) {
+        showClientNotice("You are outside the allowed attendance range", "error");
         releaseAttendanceButton();
         return;
     }
@@ -604,16 +668,9 @@ async function markAttendance(sessionId, buttonEl) {
             if (
                 data &&
                 data.message &&
-                data.message.toLowerCase().includes("outside the allowed attendance range") &&
-                Number.isFinite(data.distance) &&
-                Number.isFinite(data.allowed_radius)
+                data.message.toLowerCase().includes("outside the allowed attendance range")
             ) {
-                const roundedDistance = Number(data.distance).toFixed(1);
-                const roundedRadius = Number(data.allowed_radius).toFixed(0);
-                showClientNotice(
-                    `${data.message} (current ${roundedDistance}m of ${roundedRadius}m). Move closer and try again.`,
-                    "error"
-                );
+                showClientNotice("You are outside the allowed attendance range", "error");
             } else {
                 showClientNotice(baseMessage, "error");
             }

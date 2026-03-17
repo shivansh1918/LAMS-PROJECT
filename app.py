@@ -1769,6 +1769,66 @@ def start_session():
     return jsonify({"success": True, "message": message, "warning": warning})
 
 
+@app.get("/api/session-location")
+@login_required(role="student")
+def api_session_location():
+    session_id = request.args.get("session_id", type=int)
+    student = Student.query.filter_by(user_id=session["user_id"]).first()
+    if not student:
+        return jsonify({"active": False, "message": "Student profile not found."}), 404
+
+    active_session = None
+    if session_id:
+        active_session = AttendanceSession.query.filter_by(id=session_id, is_active=True).first()
+        if active_session and active_session.semester_id != student.semester_id:
+            return jsonify({"active": False, "message": "Session not available."}), 403
+    else:
+        active_sessions = (
+            AttendanceSession.query.filter_by(
+                is_active=True,
+                semester_id=student.semester_id,
+            )
+            .order_by(AttendanceSession.start_time.desc())
+            .all()
+        )
+        if len(active_sessions) > 1:
+            return jsonify(
+                {
+                    "active": False,
+                    "message": "Multiple active sessions found. Please select a session.",
+                }
+            ), 400
+        if active_sessions:
+            active_session = active_sessions[0]
+
+    if not active_session:
+        return jsonify({"active": False, "message": "No active session."}), 404
+
+    try:
+        session_lat = float(active_session.latitude)
+        session_lng = float(active_session.longitude)
+    except (TypeError, ValueError):
+        return jsonify({"active": False, "message": "Session location unavailable."}), 400
+
+    if not (math.isfinite(session_lat) and math.isfinite(session_lng)):
+        return jsonify({"active": False, "message": "Session location unavailable."}), 400
+    if not (-90 <= session_lat <= 90 and -180 <= session_lng <= 180):
+        return jsonify({"active": False, "message": "Session location unavailable."}), 400
+
+    response = jsonify(
+        {
+            "active": True,
+            "lat": session_lat,
+            "lng": session_lng,
+            "session_id": active_session.id,
+        }
+    )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 @app.get("/api/teacher/subjects")
 @login_required(role="teacher")
 def get_teacher_subjects_by_semester():
