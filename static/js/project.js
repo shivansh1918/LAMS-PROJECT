@@ -46,6 +46,7 @@ function gpsFailureMessage(error) {
 }
 
 const TEST_MODE_DEFAULT_COORDS = { latitude: 28.6139, longitude: 77.209 };
+const GPS_ACCURACY_THRESHOLD_M = 100;
 
 function isLikelyMobileDevice() {
     const ua = (navigator.userAgent || "").toLowerCase();
@@ -55,7 +56,7 @@ function isLikelyMobileDevice() {
 async function getStrictGpsLocation({
     retries = 2,
     timeoutMs = 5000,
-    accuracyMax = 50,
+    accuracyMax = GPS_ACCURACY_THRESHOLD_M,
 } = {}) {
     // Strict: enableHighAccuracy + maximumAge=0 + reject if accuracy > accuracyMax.
     let lastError = null;
@@ -554,7 +555,11 @@ async function startTeacherSession(buttonEl) {
     let location = null;
     if (navigator.geolocation && window.isSecureContext && isMobile) {
         location = await withTimeout(
-            getStrictGpsLocation({ retries: 2, timeoutMs: 5000, accuracyMax: 50 }).catch(() => null),
+            getStrictGpsLocation({
+                retries: 2,
+                timeoutMs: 5000,
+                accuracyMax: GPS_ACCURACY_THRESHOLD_M,
+            }).catch(() => null),
             5000,
             null
         );
@@ -693,7 +698,7 @@ function startTeacherLocationUpdates(sessionId) {
                 timeoutMs: 5000,
                 maxAgeMs: 0,
             });
-            if (Number.isFinite(location.accuracy) && location.accuracy > 50) {
+            if (Number.isFinite(location.accuracy) && location.accuracy > GPS_ACCURACY_THRESHOLD_M) {
                 return;
             }
             const payload = {
@@ -797,13 +802,17 @@ async function markAttendance(sessionId, buttonEl) {
         let location = null;
         if (navigator.geolocation && window.isSecureContext && isMobile) {
             location = await withTimeout(
-                getStrictGpsLocation({ retries: 2, timeoutMs: 5000, accuracyMax: 50 }).catch(() => null),
+                getStrictGpsLocation({
+                    retries: 2,
+                    timeoutMs: 5000,
+                    accuracyMax: GPS_ACCURACY_THRESHOLD_M,
+                }).catch(() => null),
                 5000,
                 null
             );
             if (!location) {
                 showClientNotice(
-                    "Could not get an accurate GPS fix (<= 50m). Wait a few seconds, then retry near a window/outdoor.",
+                    "Could not get an accurate GPS fix. Turn on Location Services + Wi-Fi, wait 5–10 seconds, then retry near a window/outdoor.",
                     "error"
                 );
                 releaseAttendanceButton();

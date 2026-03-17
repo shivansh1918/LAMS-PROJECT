@@ -1867,7 +1867,7 @@ def update_teacher_location():
         accuracy = 0.0
     if accuracy < 0:
         accuracy = 0.0
-    if accuracy > 50:
+    if accuracy > 100:
         # Keep the session alive, but don't overwrite last known-good coordinates.
         return jsonify({"success": True, "updated": False}), 200
 
@@ -2197,12 +2197,12 @@ def mark_attendance():
         accuracy = 0.0
     if accuracy < 0:
         accuracy = 0.0
-    if bool(getattr(active_session, "location_enforced", True)) and not test_mode and accuracy > 50:
+    if bool(getattr(active_session, "location_enforced", True)) and not test_mode and accuracy > 100:
         return (
             jsonify(
                 {
                     "success": False,
-                    "message": "GPS accuracy too low (must be <= 50m). Wait a few seconds and retry.",
+                    "message": "GPS accuracy too low (must be <= 100m). Turn on Location Services + Wi-Fi and retry near a window/outdoor.",
                     "student_accuracy": accuracy,
                 }
             ),
@@ -2223,7 +2223,7 @@ def mark_attendance():
     allowed_radius = 50.0
     teacher_accuracy = max(float(getattr(active_session, "location_accuracy", 0.0) or 0.0), 0.0)
     student_accuracy = max(float(accuracy or 0.0), 0.0)
-    # Strict 50-meter rule (no accuracy buffer).
+    # Strict 50-meter rule: no accuracy-based distance buffer.
     effective_radius = allowed_radius
     rounded_distance = round(distance, 2)
     app.logger.info(
