@@ -46,7 +46,10 @@ function gpsFailureMessage(error) {
 }
 
 const TEST_MODE_DEFAULT_COORDS = { latitude: 28.6139, longitude: 77.209 };
-const GPS_ACCURACY_THRESHOLD_M = 50;
+const GPS_ACCURACY_THRESHOLD_M = 30;
+const ATTENDANCE_ALLOWED_RADIUS_M = 50;
+const ATTENDANCE_GPS_BUFFER_M = 10;
+const ATTENDANCE_EFFECTIVE_RADIUS_M = ATTENDANCE_ALLOWED_RADIUS_M + ATTENDANCE_GPS_BUFFER_M;
 
 function isLikelyMobileDevice() {
     const ua = (navigator.userAgent || "").toLowerCase();
@@ -54,8 +57,8 @@ function isLikelyMobileDevice() {
 }
 
 async function getStrictGpsLocation({
-    retries = 2,
-    timeoutMs = 5000,
+    retries = 4,
+    timeoutMs = 8000,
     accuracyMax = GPS_ACCURACY_THRESHOLD_M,
 } = {}) {
     // Strict: enableHighAccuracy + maximumAge=0 + reject if accuracy > accuracyMax.
@@ -66,7 +69,8 @@ async function getStrictGpsLocation({
             const loc = await captureLocation({
                 preferHighAccuracy: true,
                 timeoutMs,
-                maxAgeMs: 0,
+                // Don't accept old/cached fixes when marking attendance.
+                maxAgeMs: 5000,
                 targetAccuracy: accuracyMax || 0,
             });
             const accuracy = Number(loc.accuracy) || 0;
@@ -85,7 +89,7 @@ async function getStrictGpsLocation({
             }
         }
         if (attempt < retries) {
-            await waitMs(350);
+            await waitMs(450 + attempt * 250);
         }
     }
     throw lastError || new Error("Unable to capture location");
@@ -507,7 +511,11 @@ async function fetchWithRetry(url, options, retries = 2) {
     let lastError = null;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
         try {
-            return await fetch(url, options);
+            const finalOptions = options ? { ...options } : {};
+            if (!("cache" in finalOptions)) {
+                finalOptions.cache = "no-store";
+            }
+            return await fetch(url, finalOptions);
         } catch (error) {
             lastError = error;
             if (attempt < retries) {
@@ -549,32 +557,37 @@ async function startTeacherSession(buttonEl) {
     }
 
     const payload = { subject_id: Number(subjectId), device_id: getOrCreateDeviceId() };
-    // Mobile: start with real coords even if accuracy is poor (to avoid default test coords causing "out of range").
+    // Mobile: require an accurate GPS fix so geofence checks do not produce false negatives.
     // Desktop/laptop: start in test mode.
     const isMobile = isLikelyMobileDevice();
     let location = null;
+    if (isMobile && (!navigator.geolocation || !window.isSecureContext)) {
+        showClientNotice(
+            "Live location is unavailable. Open the app on HTTPS or localhost, then enable GPS permission.",
+            "error",
+            4200
+        );
+        reenableStartButton();
+        return;
+    }
     if (navigator.geolocation && window.isSecureContext && isMobile) {
         location = await withTimeout(
             getStrictGpsLocation({
-                retries: 2,
-                timeoutMs: 5000,
+                retries: 4,
+                timeoutMs: 9000,
                 accuracyMax: GPS_ACCURACY_THRESHOLD_M,
             }).catch(() => null),
-            5000,
+            9500,
             null
         );
         if (!location) {
-            // Best-effort GPS (may be >50m accuracy) so session still represents teacher's area.
-            location = await withTimeout(
-                captureLocation({
-                    preferHighAccuracy: true,
-                    timeoutMs: 5000,
-                    maxAgeMs: 0,
-                    targetAccuracy: 0,
-                }).catch(() => null),
-                5000,
-                null
+            showClientNotice(
+                `Could not get an accurate GPS fix (need <= ${GPS_ACCURACY_THRESHOLD_M}m). Turn on Location Services + Wi-Fi, wait 5–10 seconds, then retry near a window/outdoor.`,
+                "error",
+                4200
             );
+            reenableStartButton();
+            return;
         }
     }
     if (location) {
@@ -694,8 +707,8 @@ function startTeacherLocationUpdates(sessionId) {
     const updateOnce = async () => {
         try {
             const location = await getStrictGpsLocation({
-                retries: 1,
-                timeoutMs: 5000,
+                retries: 2,
+                timeoutMs: 8000,
                 accuracyMax: GPS_ACCURACY_THRESHOLD_M,
             });
             const payload = {
@@ -758,6 +771,7 @@ async function markAttendance(sessionId, buttonEl) {
             `/api/active-session?session_id=${encodeURIComponent(sessionId)}&_ts=${Date.now()}`,
             {
             method: "GET",
+            cache: "no-store",
             headers: { "Cache-Control": "no-store" },
             }
         );
@@ -805,14 +819,23 @@ async function markAttendance(sessionId, buttonEl) {
         payload.device_id = getOrCreateDeviceId();
         const isMobile = isLikelyMobileDevice();
         let location = null;
+        if (isMobile && (!navigator.geolocation || !window.isSecureContext)) {
+            showClientNotice(
+                "Live location is unavailable. Open the app on HTTPS or localhost, then enable GPS permission.",
+                "error",
+                4200
+            );
+            releaseAttendanceButton();
+            return;
+        }
         if (navigator.geolocation && window.isSecureContext && isMobile) {
             location = await withTimeout(
                 getStrictGpsLocation({
-                    retries: 2,
-                    timeoutMs: 5000,
+                    retries: 4,
+                    timeoutMs: 9000,
                     accuracyMax: GPS_ACCURACY_THRESHOLD_M,
                 }).catch(() => null),
-                5000,
+                9500,
                 null
             );
             if (!location) {
@@ -858,7 +881,7 @@ async function markAttendance(sessionId, buttonEl) {
         teacherLocation.latitude,
         teacherLocation.longitude
     );
-    const effectiveRadius = 50;
+    const effectiveRadius = ATTENDANCE_EFFECTIVE_RADIUS_M;
     console.log("[attendance] calculated distance (m)", distance);
     if (!Number.isFinite(distance)) {
         showClientNotice("Invalid distance calculation.", "error");

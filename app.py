@@ -46,6 +46,14 @@ init_db(app)
 ALLOWED_SEMESTER_NAMES = [f"Semester {i}" for i in range(1, 7)]
 ALLOWED_ROLES = {"admin", "teacher", "student"}
 
+# Attendance geofence/GPS tuning
+# - Allowed radius: 50m (strict requirement)
+# - Buffer: allow up to 60m to reduce false negatives from GPS drift
+# - Accuracy threshold: only accept GPS fixes within ~20–30m
+ATTENDANCE_ALLOWED_RADIUS_M = 50.0
+ATTENDANCE_RADIUS_BUFFER_M = 10.0
+GPS_ACCURACY_ACCEPT_MAX_M = 30.0
+
 
 @app.context_processor
 def inject_laas_logo():
@@ -1734,6 +1742,18 @@ def start_session():
         accuracy = 0.0
     if accuracy < 0:
         accuracy = 0.0
+
+    if not test_mode and (not accuracy or accuracy <= 0 or accuracy > GPS_ACCURACY_ACCEPT_MAX_M):
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": f"GPS accuracy too low (must be <= {int(GPS_ACCURACY_ACCEPT_MAX_M)}m). Wait a few seconds and retry near a window/outdoor.",
+                    "teacher_accuracy": accuracy,
+                }
+            ),
+            400,
+        )
     if not device_id:
         return jsonify({"success": False, "message": "Device identity required. Please refresh and retry."}), 400
 
@@ -1770,7 +1790,7 @@ def start_session():
         longitude=longitude,
         location_accuracy=accuracy,
         location_enforced=not test_mode,
-        gps_locked=bool(test_mode or (accuracy and accuracy <= 50)),
+        gps_locked=bool(test_mode or (accuracy and accuracy <= GPS_ACCURACY_ACCEPT_MAX_M)),
         is_test_mode=bool(test_mode),
         device_id=device_id,
         device_fingerprint=get_device_fingerprint(),
@@ -1790,7 +1810,7 @@ def start_session():
     db.session.commit()
 
     warning = None
-    if accuracy > 50:
+    if accuracy > GPS_ACCURACY_ACCEPT_MAX_M:
         warning = "Session started with low GPS accuracy. Please ensure location services are enabled."
     app.logger.info(
         "Session started | teacher_id=%s subject_id=%s lat=%s lon=%s acc=%.2f warning=%s",
@@ -1870,7 +1890,7 @@ def update_teacher_location():
     if accuracy < 0:
         accuracy = 0.0
     # Only accept updates that have a reasonably accurate GPS fix.
-    if accuracy > 50:
+    if not accuracy or accuracy <= 0 or accuracy > GPS_ACCURACY_ACCEPT_MAX_M:
         return jsonify({"success": True, "updated": False}), 200
 
     active_session.latitude = latitude
@@ -2221,13 +2241,13 @@ def mark_attendance():
         bool(getattr(active_session, "location_enforced", True))
         and not bool(getattr(active_session, "is_test_mode", False))
         and not test_mode
-        and accuracy > 50
+        and (not accuracy or accuracy <= 0 or accuracy > GPS_ACCURACY_ACCEPT_MAX_M)
     ):
         return (
             jsonify(
                 {
                     "success": False,
-                    "message": "GPS accuracy too low (must be <= 50m). Wait a few seconds and retry near a window/outdoor.",
+                    "message": f"GPS accuracy too low (must be <= {int(GPS_ACCURACY_ACCEPT_MAX_M)}m). Wait a few seconds and retry near a window/outdoor.",
                     "student_accuracy": accuracy,
                 }
             ),
@@ -2245,11 +2265,11 @@ def mark_attendance():
     if not math.isfinite(distance):
         return jsonify({"success": False, "message": "Invalid distance calculation."}), 400
 
-    allowed_radius = 50.0
+    allowed_radius = ATTENDANCE_ALLOWED_RADIUS_M
     teacher_accuracy = max(float(getattr(active_session, "location_accuracy", 0.0) or 0.0), 0.0)
     student_accuracy = max(float(accuracy or 0.0), 0.0)
-    # Strict 50-meter rule: no accuracy-based distance buffer.
-    effective_radius = allowed_radius
+    # Allow a small buffer to reduce false negatives from GPS drift.
+    effective_radius = allowed_radius + ATTENDANCE_RADIUS_BUFFER_M
     rounded_distance = round(distance, 2)
     app.logger.info(
         "Attendance distance check | student=(%s,%s acc=%.2f) teacher=(%s,%s acc=%.2f) distance_m=%.2f radius=%.2f eff_radius=%.2f",
