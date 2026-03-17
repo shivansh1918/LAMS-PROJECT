@@ -46,7 +46,7 @@ function gpsFailureMessage(error) {
 }
 
 const TEST_MODE_DEFAULT_COORDS = { latitude: 28.6139, longitude: 77.209 };
-const GPS_ACCURACY_THRESHOLD_M = 100;
+const GPS_ACCURACY_THRESHOLD_M = 50;
 
 function isLikelyMobileDevice() {
     const ua = (navigator.userAgent || "").toLowerCase();
@@ -693,14 +693,11 @@ function startTeacherLocationUpdates(sessionId) {
 
     const updateOnce = async () => {
         try {
-            const location = await captureLocationFast({
-                preferHighAccuracy: true,
+            const location = await getStrictGpsLocation({
+                retries: 1,
                 timeoutMs: 5000,
-                maxAgeMs: 0,
+                accuracyMax: GPS_ACCURACY_THRESHOLD_M,
             });
-            if (Number.isFinite(location.accuracy) && location.accuracy > GPS_ACCURACY_THRESHOLD_M) {
-                return;
-            }
             const payload = {
                 session_id: numericId,
                 latitude: location.latitude,
@@ -767,6 +764,14 @@ async function markAttendance(sessionId, buttonEl) {
         const data = await parseApiResponse(response);
         if (!response.ok || !data || !data.active) {
             showClientNotice((data && data.message) || "No active session.", "error");
+            releaseAttendanceButton();
+            return;
+        }
+        if (data && data.is_test_mode === false && data.gps_locked === false) {
+            showClientNotice(
+                "Teacher GPS is still stabilizing. Please wait 5–10 seconds and retry.",
+                "error"
+            );
             releaseAttendanceButton();
             return;
         }

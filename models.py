@@ -105,6 +105,8 @@ class AttendanceSession(db.Model):
     device_id = db.Column(db.String(80), nullable=True)
     device_fingerprint = db.Column(db.String(255), nullable=True)
     last_location_update = db.Column(db.DateTime, nullable=True)
+    gps_locked = db.Column(db.Boolean, default=False, nullable=False)
+    is_test_mode = db.Column(db.Boolean, default=False, nullable=False)
 
 
 class TeacherLocationHistory(db.Model):
@@ -192,6 +194,16 @@ def init_db(app):
             "attendance_sessions",
             "last_location_update",
             "last_location_update DATETIME",
+        )
+        _add_column_if_missing(
+            "attendance_sessions",
+            "gps_locked",
+            "gps_locked BOOLEAN NOT NULL DEFAULT 0",
+        )
+        _add_column_if_missing(
+            "attendance_sessions",
+            "is_test_mode",
+            "is_test_mode BOOLEAN NOT NULL DEFAULT 0",
         )
         _add_column_if_missing(
             "attendance",

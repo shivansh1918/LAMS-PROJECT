@@ -1770,6 +1770,8 @@ def start_session():
         longitude=longitude,
         location_accuracy=accuracy,
         location_enforced=not test_mode,
+        gps_locked=bool(test_mode or (accuracy and accuracy <= 50)),
+        is_test_mode=bool(test_mode),
         device_id=device_id,
         device_fingerprint=get_device_fingerprint(),
         last_location_update=datetime.now(),
@@ -1867,16 +1869,15 @@ def update_teacher_location():
         accuracy = 0.0
     if accuracy < 0:
         accuracy = 0.0
-    if accuracy > 100:
-        # Keep the session alive, but don't overwrite last known-good coordinates.
+    # Only accept updates that have a reasonably accurate GPS fix.
+    if accuracy > 50:
         return jsonify({"success": True, "updated": False}), 200
 
     active_session.latitude = latitude
     active_session.longitude = longitude
     active_session.location_accuracy = accuracy
     active_session.last_location_update = datetime.now()
-    if not bool(getattr(active_session, "location_enforced", True)):
-        active_session.location_enforced = True
+    active_session.gps_locked = True
     db.session.add(
         TeacherLocationHistory(
             session_id=active_session.id,
@@ -2012,6 +2013,8 @@ def api_active_session():
             "teacher_lng": session_lng,
             "session_id": active_session.id,
             "accuracy": float(getattr(active_session, "location_accuracy", 0.0) or 0.0),
+            "gps_locked": bool(getattr(active_session, "gps_locked", False)),
+            "is_test_mode": bool(getattr(active_session, "is_test_mode", False)),
             "last_location_update": (
                 active_session.last_location_update.isoformat()
                 if getattr(active_session, "last_location_update", None)
@@ -2116,6 +2119,23 @@ def mark_attendance():
 
     if student.semester_id != active_session.semester_id:
         return jsonify({"success": False, "message": "Semester mismatch. You cannot mark this attendance."}), 403
+    # If teacher's GPS hasn't locked yet, do not attempt strict 50m validation (it will cause false negatives).
+    if (
+        bool(getattr(active_session, "location_enforced", True))
+        and not bool(getattr(active_session, "is_test_mode", False))
+        and not bool(getattr(active_session, "gps_locked", False))
+        and not test_mode
+    ):
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": "Teacher GPS is still stabilizing. Please wait 5–10 seconds and retry.",
+                    "teacher_accuracy": float(getattr(active_session, "location_accuracy", 0.0) or 0.0),
+                }
+            ),
+            409,
+        )
     if bool(getattr(active_session, "location_enforced", True)) and not test_mode:
         if active_session.device_id and device_id == active_session.device_id:
             return jsonify(
@@ -2197,12 +2217,17 @@ def mark_attendance():
         accuracy = 0.0
     if accuracy < 0:
         accuracy = 0.0
-    if bool(getattr(active_session, "location_enforced", True)) and not test_mode and accuracy > 100:
+    if (
+        bool(getattr(active_session, "location_enforced", True))
+        and not bool(getattr(active_session, "is_test_mode", False))
+        and not test_mode
+        and accuracy > 50
+    ):
         return (
             jsonify(
                 {
                     "success": False,
-                    "message": "GPS accuracy too low (must be <= 100m). Turn on Location Services + Wi-Fi and retry near a window/outdoor.",
+                    "message": "GPS accuracy too low (must be <= 50m). Wait a few seconds and retry near a window/outdoor.",
                     "student_accuracy": accuracy,
                 }
             ),
