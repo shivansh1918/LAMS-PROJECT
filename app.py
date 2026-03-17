@@ -2198,7 +2198,16 @@ def mark_attendance():
     if accuracy < 0:
         accuracy = 0.0
     if bool(getattr(active_session, "location_enforced", True)) and not test_mode and accuracy > 50:
-        return jsonify({"success": False, "message": "Please enable GPS and try again."}), 400
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": "GPS accuracy too low (must be <= 50m). Wait a few seconds and retry.",
+                    "student_accuracy": accuracy,
+                }
+            ),
+            400,
+        )
 
 
     # Strict 50-meter geofence check with GPS accuracy tolerance.

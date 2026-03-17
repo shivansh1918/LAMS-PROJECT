@@ -38,6 +38,10 @@ function gpsFailureMessage(error) {
             return "Please enable GPS and try again.";
         }
     }
+    const msg = (error && error.message ? String(error.message) : "").toLowerCase();
+    if (msg.includes("insecure") || msg.includes("https") || msg.includes("secure")) {
+        return "Location is blocked on insecure pages. Open the app on HTTPS or localhost.";
+    }
     return "Please enable GPS and try again.";
 }
 
@@ -57,14 +61,18 @@ async function getStrictGpsLocation({
     let lastError = null;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
         try {
-            const loc = await captureLocationFast({
+            // captureLocation uses watch as fallback, which is much more reliable than a single fast fix.
+            const loc = await captureLocation({
                 preferHighAccuracy: true,
                 timeoutMs,
                 maxAgeMs: 0,
+                targetAccuracy: accuracyMax || 0,
             });
             const accuracy = Number(loc.accuracy) || 0;
             if (accuracyMax && Number.isFinite(accuracy) && accuracy > accuracyMax) {
-                lastError = new Error("GPS accuracy too low");
+                const err = new Error("GPS accuracy too low");
+                err.kind = "accuracy";
+                lastError = err;
             } else {
                 return loc;
             }
@@ -540,7 +548,8 @@ async function startTeacherSession(buttonEl) {
     }
 
     const payload = { subject_id: Number(subjectId), device_id: getOrCreateDeviceId() };
-    // Try strict GPS quickly; if it doesn't arrive within 5s, start in test mode and let live updates upgrade it.
+    // Mobile: start with real coords even if accuracy is poor (to avoid default test coords causing "out of range").
+    // Desktop/laptop: start in test mode.
     const isMobile = isLikelyMobileDevice();
     let location = null;
     if (navigator.geolocation && window.isSecureContext && isMobile) {
@@ -549,6 +558,19 @@ async function startTeacherSession(buttonEl) {
             5000,
             null
         );
+        if (!location) {
+            // Best-effort GPS (may be >50m accuracy) so session still represents teacher's area.
+            location = await withTimeout(
+                captureLocation({
+                    preferHighAccuracy: true,
+                    timeoutMs: 5000,
+                    maxAgeMs: 0,
+                    targetAccuracy: 0,
+                }).catch(() => null),
+                5000,
+                null
+            );
+        }
     }
     if (location) {
         if (
@@ -780,7 +802,10 @@ async function markAttendance(sessionId, buttonEl) {
                 null
             );
             if (!location) {
-                showClientNotice("Please enable GPS and try again.", "error");
+                showClientNotice(
+                    "Could not get an accurate GPS fix (<= 50m). Wait a few seconds, then retry near a window/outdoor.",
+                    "error"
+                );
                 releaseAttendanceButton();
                 return;
             }
@@ -826,11 +851,7 @@ async function markAttendance(sessionId, buttonEl) {
         releaseAttendanceButton();
         return;
     }
-    if (distance > effectiveRadius) {
-        showClientNotice("You are outside the allowed attendance range", "error");
-        releaseAttendanceButton();
-        return;
-    }
+    // Don't block on client-side distance check; server is the source of truth and uses the latest teacher coords.
 
     try {
         const response = await fetchWithRetry("/api/student/attendance/mark", {
