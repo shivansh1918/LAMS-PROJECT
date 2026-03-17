@@ -27,32 +27,33 @@
 
 <div class="card">
     <h3>Active Sessions</h3>
-    {% if active_sessions %}
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Subject</th>
-                        <th>Semester</th>
-                        <th>Start Time</th>
-                        <th>Action</th>
+    <div
+        class="table-wrap"
+        id="teacher-active-sessions-wrap"
+        {% if not active_sessions %}style="display:none;"{% endif %}
+    >
+        <table>
+            <thead>
+                <tr>
+                    <th>Subject</th>
+                    <th>Semester</th>
+                    <th>Start Time</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="teacher-active-sessions-body">
+                {% for sess, subject, semester in active_sessions %}
+                    <tr data-teacher-session-id="{{ sess.id }}">
+                        <td>{{ subject.name }}</td>
+                        <td>{{ semester.name }}</td>
+                        <td>{{ sess.start_time }}</td>
+                        <td><button type="button" class="btn-secondary" onclick="stopTeacherSession({{ sess.id }})">Stop</button></td>
                     </tr>
-                </thead>
-                <tbody>
-                    {% for sess, subject, semester in active_sessions %}
-                        <tr>
-                            <td>{{ subject.name }}</td>
-                            <td>{{ semester.name }}</td>
-                            <td>{{ sess.start_time }}</td>
-                            <td><button type="button" class="btn-secondary" onclick="stopTeacherSession({{ sess.id }})">Stop</button></td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    {% else %}
-        <p>No active session.</p>
-    {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p id="teacher-active-sessions-empty" {% if active_sessions %}style="display:none;"{% endif %}>No active session.</p>
 </div>
 
 <div class="card">

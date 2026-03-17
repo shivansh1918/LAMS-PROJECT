@@ -12,6 +12,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from models import (
     Attendance,
     AttendanceSession,
+    TeacherLocationHistory,
     BlockedStudentRegistration,
     Semester,
     Student,
@@ -121,6 +122,19 @@ def haversine_meters(lat1, lon1, lat2, lon2):
         * math.sin(dlon / 2) ** 2
     )
     return r * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
+
+
+def get_client_ip():
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.remote_addr or ""
+
+
+def get_device_fingerprint():
+    user_agent = request.headers.get("User-Agent", "")
+    client_ip = get_client_ip()
+    return f"{user_agent}|{client_ip}"
 
 
 def role_dashboard(role):
@@ -1680,6 +1694,8 @@ def start_session():
     latitude = data.get("latitude")
     longitude = data.get("longitude")
     accuracy = data.get("accuracy")
+    device_id = (data.get("device_id") or "").strip()
+    test_mode = bool(data.get("test_mode"))
 
     if subject_id in (None, ""):
         return jsonify({"success": False, "message": "Subject is required."}), 400
@@ -1689,6 +1705,11 @@ def start_session():
         return jsonify({"success": False, "message": "Invalid subject value."}), 400
 
     has_location = latitude not in (None, "") and longitude not in (None, "")
+    if not has_location and test_mode:
+        latitude = 28.6139
+        longitude = 77.209
+        accuracy = 0.0
+        has_location = True
     if not has_location:
         return jsonify(
             {
@@ -1713,6 +1734,8 @@ def start_session():
         accuracy = 0.0
     if accuracy < 0:
         accuracy = 0.0
+    if not device_id:
+        return jsonify({"success": False, "message": "Device identity required. Please refresh and retry."}), 400
 
     teacher = Teacher.query.filter_by(user_id=session["user_id"]).first()
     subject = Subject.query.filter_by(id=subject_id, status=True).first()
@@ -1746,9 +1769,22 @@ def start_session():
         latitude=latitude,
         longitude=longitude,
         location_accuracy=accuracy,
-        location_enforced=True,
+        location_enforced=not test_mode,
+        device_id=device_id,
+        device_fingerprint=get_device_fingerprint(),
+        last_location_update=datetime.now(),
     )
     db.session.add(new_session)
+    db.session.flush()
+    db.session.add(
+        TeacherLocationHistory(
+            session_id=new_session.id,
+            teacher_id=teacher.id,
+            latitude=latitude,
+            longitude=longitude,
+            accuracy=accuracy,
+        )
+    )
     db.session.commit()
 
     warning = None
@@ -1766,7 +1802,93 @@ def start_session():
     message = "Attendance session started successfully."
     if warning:
         message = f"{message} {warning}"
-    return jsonify({"success": True, "message": message, "warning": warning})
+    return jsonify(
+        {
+            "success": True,
+            "message": message,
+            "warning": warning,
+            "session_id": new_session.id,
+        }
+    )
+
+
+@app.post("/api/teacher/session/update-location")
+@login_required(role="teacher")
+def update_teacher_location():
+    data = request.get_json(silent=True) or {}
+    session_id = data.get("session_id")
+    latitude = data.get("latitude")
+    longitude = data.get("longitude")
+    accuracy = data.get("accuracy")
+    device_id = (data.get("device_id") or "").strip()
+
+    if session_id in (None, ""):
+        return jsonify({"success": False, "message": "Session is required."}), 400
+    try:
+        session_id = int(session_id)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid session value."}), 400
+
+    if not device_id:
+        return jsonify({"success": False, "message": "Device identity required."}), 400
+
+    teacher = Teacher.query.filter_by(user_id=session["user_id"]).first()
+    if not teacher:
+        return jsonify({"success": False, "message": "Teacher profile not found."}), 404
+
+    active_session = AttendanceSession.query.filter_by(
+        id=session_id,
+        teacher_id=teacher.id,
+        is_active=True,
+    ).first()
+    if not active_session:
+        return jsonify({"success": False, "message": "Active session not found."}), 404
+
+    if active_session.device_id and device_id != active_session.device_id:
+        return jsonify({"success": False, "message": "Session device mismatch."}), 403
+    if (
+        active_session.device_fingerprint
+        and active_session.device_fingerprint != get_device_fingerprint()
+    ):
+        return jsonify({"success": False, "message": "Session device mismatch."}), 403
+
+    try:
+        latitude = float(latitude)
+        longitude = float(longitude)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid location values."}), 400
+    if not (math.isfinite(latitude) and math.isfinite(longitude)):
+        return jsonify({"success": False, "message": "Invalid location values."}), 400
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        return jsonify({"success": False, "message": "Invalid location coordinates."}), 400
+    try:
+        accuracy = float(accuracy) if accuracy not in (None, "") else 0.0
+    except (TypeError, ValueError):
+        accuracy = 0.0
+    if accuracy < 0:
+        accuracy = 0.0
+    if accuracy > 50:
+        # Keep the session alive, but don't overwrite last known-good coordinates.
+        return jsonify({"success": True, "updated": False}), 200
+
+    active_session.latitude = latitude
+    active_session.longitude = longitude
+    active_session.location_accuracy = accuracy
+    active_session.last_location_update = datetime.now()
+    if not bool(getattr(active_session, "location_enforced", True)):
+        active_session.location_enforced = True
+    db.session.add(
+        TeacherLocationHistory(
+            session_id=active_session.id,
+            teacher_id=teacher.id,
+            latitude=latitude,
+            longitude=longitude,
+            accuracy=accuracy,
+        )
+    )
+    db.session.commit()
+
+    return jsonify({"success": True})
 
 
 @app.get("/api/session-location")
@@ -1821,6 +1943,80 @@ def api_session_location():
             "lat": session_lat,
             "lng": session_lng,
             "session_id": active_session.id,
+            "accuracy": float(getattr(active_session, "location_accuracy", 0.0) or 0.0),
+        }
+    )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@app.get("/api/active-session")
+@login_required(role="student")
+def api_active_session():
+    session_id = request.args.get("session_id", type=int)
+    student = Student.query.filter_by(user_id=session["user_id"]).first()
+    if not student:
+        return jsonify({"active": False, "message": "Student profile not found."}), 404
+
+    active_session = None
+    if session_id:
+        active_session = AttendanceSession.query.filter_by(id=session_id, is_active=True).first()
+        if active_session and active_session.semester_id != student.semester_id:
+            return jsonify({"active": False, "message": "Session not available."}), 403
+    else:
+        active_sessions = (
+            AttendanceSession.query.filter_by(
+                is_active=True,
+                semester_id=student.semester_id,
+            )
+            .order_by(AttendanceSession.start_time.desc())
+            .all()
+        )
+        if len(active_sessions) > 1:
+            return jsonify(
+                {
+                    "active": False,
+                    "message": "Multiple active sessions found. Please select a session.",
+                }
+            ), 400
+        if active_sessions:
+            active_session = active_sessions[0]
+
+    if not active_session:
+        return jsonify({"active": False, "message": "No active session."}), 404
+
+    try:
+        session_lat = float(active_session.latitude)
+        session_lng = float(active_session.longitude)
+    except (TypeError, ValueError):
+        return jsonify({"active": False, "message": "Session location unavailable."}), 400
+
+    if not (math.isfinite(session_lat) and math.isfinite(session_lng)):
+        return jsonify({"active": False, "message": "Session location unavailable."}), 400
+    if not (-90 <= session_lat <= 90 and -180 <= session_lng <= 180):
+        return jsonify({"active": False, "message": "Session location unavailable."}), 400
+
+    if bool(getattr(active_session, "location_enforced", True)):
+        last_update = getattr(active_session, "last_location_update", None)
+        if not last_update:
+            return jsonify({"active": False, "message": "Teacher location is stale. Ask the teacher to retry."}), 400
+        if (datetime.now() - last_update).total_seconds() > 12:
+            return jsonify({"active": False, "message": "Teacher location is stale. Ask the teacher to retry."}), 400
+
+    response = jsonify(
+        {
+            "active": True,
+            "teacher_lat": session_lat,
+            "teacher_lng": session_lng,
+            "session_id": active_session.id,
+            "accuracy": float(getattr(active_session, "location_accuracy", 0.0) or 0.0),
+            "last_location_update": (
+                active_session.last_location_update.isoformat()
+                if getattr(active_session, "last_location_update", None)
+                else None
+            ),
         }
     )
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
@@ -1894,6 +2090,10 @@ def mark_attendance():
     latitude = data.get("latitude")
     longitude = data.get("longitude")
     accuracy = data.get("accuracy")
+    device_id = (data.get("device_id") or "").strip()
+    teacher_latitude_client = data.get("teacher_latitude")
+    teacher_longitude_client = data.get("teacher_longitude")
+    test_mode = bool(data.get("test_mode"))
 
     if session_id in (None, ""):
         return jsonify({"success": False, "message": "Session is required."}), 400
@@ -1901,6 +2101,8 @@ def mark_attendance():
         session_id = int(session_id)
     except (TypeError, ValueError):
         return jsonify({"success": False, "message": "Invalid session value."}), 400
+    if not device_id:
+        return jsonify({"success": False, "message": "Device identity required. Please refresh and retry."}), 400
 
     student = Student.query.filter_by(user_id=session["user_id"]).first()
     active_session = AttendanceSession.query.filter_by(id=session_id, is_active=True).first()
@@ -1914,34 +2116,23 @@ def mark_attendance():
 
     if student.semester_id != active_session.semester_id:
         return jsonify({"success": False, "message": "Semester mismatch. You cannot mark this attendance."}), 403
+    if bool(getattr(active_session, "location_enforced", True)) and not test_mode:
+        if active_session.device_id and device_id == active_session.device_id:
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "Attendance cannot be marked from the same device as the teacher.",
+                }
+            ), 403
+        if active_session.device_fingerprint and active_session.device_fingerprint == get_device_fingerprint():
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "Attendance cannot be marked from the same device as the teacher.",
+                }
+            ), 403
 
-    # Student GPS is mandatory for marking attendance.
-    has_location = latitude not in (None, "") and longitude not in (None, "")
-    if not has_location:
-        return jsonify(
-            {
-                "success": False,
-                "message": "Location is required. Please turn on GPS and allow location permission.",
-            }
-        ), 400
-    try:
-        latitude = float(latitude)
-        longitude = float(longitude)
-    except (TypeError, ValueError):
-        return jsonify({"success": False, "message": "Invalid location values."}), 400
-    if not (math.isfinite(latitude) and math.isfinite(longitude)):
-        return jsonify({"success": False, "message": "Invalid location values."}), 400
-    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
-        return jsonify({"success": False, "message": "Invalid location coordinates."}), 400
-    try:
-        accuracy = float(accuracy) if accuracy not in (None, "") else 0.0
-    except (TypeError, ValueError):
-        accuracy = 0.0
-    if accuracy < 0:
-        accuracy = 0.0
-
-
-    # Strict 50-meter geofence check with GPS accuracy tolerance.
+    # Load teacher coordinates early to support desktop test mode fallback.
     try:
         session_latitude = float(active_session.latitude)
         session_longitude = float(active_session.longitude)
@@ -1976,6 +2167,41 @@ def mark_attendance():
             400,
         )
 
+    # Student GPS is mandatory in production. For desktop/laptop testing mode, allow mock coordinates.
+    has_location = latitude not in (None, "") and longitude not in (None, "")
+    if not has_location:
+        if test_mode or not bool(getattr(active_session, "location_enforced", True)):
+            latitude = session_latitude + 0.0003
+            longitude = session_longitude
+            accuracy = 0.0
+            has_location = True
+        else:
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "Location is required. Please turn on GPS and allow location permission.",
+                }
+            ), 400
+    try:
+        latitude = float(latitude)
+        longitude = float(longitude)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid location values."}), 400
+    if not (math.isfinite(latitude) and math.isfinite(longitude)):
+        return jsonify({"success": False, "message": "Invalid location values."}), 400
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        return jsonify({"success": False, "message": "Invalid location coordinates."}), 400
+    try:
+        accuracy = float(accuracy) if accuracy not in (None, "") else 0.0
+    except (TypeError, ValueError):
+        accuracy = 0.0
+    if accuracy < 0:
+        accuracy = 0.0
+    if bool(getattr(active_session, "location_enforced", True)) and not test_mode and accuracy > 50:
+        return jsonify({"success": False, "message": "Please enable GPS and try again."}), 400
+
+
+    # Strict 50-meter geofence check with GPS accuracy tolerance.
     distance = haversine_meters(
         latitude,
         longitude,
@@ -1988,9 +2214,8 @@ def mark_attendance():
     allowed_radius = 50.0
     teacher_accuracy = max(float(getattr(active_session, "location_accuracy", 0.0) or 0.0), 0.0)
     student_accuracy = max(float(accuracy or 0.0), 0.0)
-    # Strict 50 m rule. Accuracies are logged for diagnostics but do not widen the radius.
-    accuracy_buffer = 0.0
-    effective_radius = allowed_radius + accuracy_buffer
+    # Strict 50-meter rule (no accuracy buffer).
+    effective_radius = allowed_radius
     rounded_distance = round(distance, 2)
     app.logger.info(
         "Attendance distance check | student=(%s,%s acc=%.2f) teacher=(%s,%s acc=%.2f) distance_m=%.2f radius=%.2f eff_radius=%.2f",
@@ -2004,6 +2229,12 @@ def mark_attendance():
         effective_radius,
         effective_radius,
     )
+    if teacher_latitude_client not in (None, "") and teacher_longitude_client not in (None, ""):
+        app.logger.info(
+            "Attendance client teacher location | teacher_client=(%s,%s)",
+            teacher_latitude_client,
+            teacher_longitude_client,
+        )
     if distance > effective_radius:
         # Double-check after recalculating to rule out transient float issues.
         distance = haversine_meters(

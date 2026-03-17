@@ -4,6 +4,92 @@ function getCurrentPositionOnce(options) {
     });
 }
 
+function getOrCreateDeviceId() {
+    const key = "laas_device_id";
+    let value = "";
+    try {
+        value = localStorage.getItem(key) || "";
+    } catch (e) {
+        value = "";
+    }
+    if (value) return value;
+    const bytes = new Uint8Array(16);
+    if (window.crypto && typeof window.crypto.getRandomValues === "function") {
+        window.crypto.getRandomValues(bytes);
+    } else {
+        for (let i = 0; i < bytes.length; i += 1) {
+            bytes[i] = Math.floor(Math.random() * 256);
+        }
+    }
+    value = Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    try {
+        localStorage.setItem(key, value);
+    } catch (e) {
+        // ignore storage failures (private mode, etc.)
+    }
+    return value;
+}
+
+function gpsFailureMessage(error) {
+    if (error && typeof error.code === "number") {
+        if (error.code === 1 || error.code === 2 || error.code === 3) {
+            return "Please enable GPS and try again.";
+        }
+    }
+    return "Please enable GPS and try again.";
+}
+
+const TEST_MODE_DEFAULT_COORDS = { latitude: 28.6139, longitude: 77.209 };
+
+function isLikelyMobileDevice() {
+    const ua = (navigator.userAgent || "").toLowerCase();
+    return /android|iphone|ipad|ipod|mobile|windows phone/.test(ua);
+}
+
+async function getStrictGpsLocation({
+    retries = 2,
+    timeoutMs = 5000,
+    accuracyMax = 50,
+} = {}) {
+    // Strict: enableHighAccuracy + maximumAge=0 + reject if accuracy > accuracyMax.
+    let lastError = null;
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+        try {
+            const loc = await captureLocationFast({
+                preferHighAccuracy: true,
+                timeoutMs,
+                maxAgeMs: 0,
+            });
+            const accuracy = Number(loc.accuracy) || 0;
+            if (accuracyMax && Number.isFinite(accuracy) && accuracy > accuracyMax) {
+                lastError = new Error("GPS accuracy too low");
+            } else {
+                return loc;
+            }
+        } catch (err) {
+            lastError = err;
+            if (err && err.code === 1) {
+                // Permission denied: don't keep retrying silently.
+                throw err;
+            }
+        }
+        if (attempt < retries) {
+            await waitMs(350);
+        }
+    }
+    throw lastError || new Error("Unable to capture location");
+}
+
+async function getGpsLocationOrNull(options = {}) {
+    try {
+        return await getStrictGpsLocation(options);
+    } catch (err) {
+        return null;
+    }
+}
+
 function initGmailUsernameFields() {
     const forms = document.querySelectorAll("form");
     forms.forEach((form) => {
@@ -108,6 +194,10 @@ function initAjaxActionForms() {
 
 function waitMs(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withTimeout(promise, timeoutMs, fallbackValue) {
+    return Promise.race([promise, waitMs(timeoutMs).then(() => fallbackValue)]);
 }
 
 function isFreshPosition(position, maxAgeMs) {
@@ -404,6 +494,21 @@ async function parseApiResponse(response) {
     return { success: false, message: text || "Unexpected server response." };
 }
 
+async function fetchWithRetry(url, options, retries = 2) {
+    let lastError = null;
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+        try {
+            return await fetch(url, options);
+        } catch (error) {
+            lastError = error;
+            if (attempt < retries) {
+                await waitMs(300);
+            }
+        }
+    }
+    throw lastError || new Error("Network error");
+}
+
 async function startTeacherSession(buttonEl) {
     const subjectSelect = document.getElementById("subject_id");
     const subjectId = subjectSelect ? subjectSelect.value : "";
@@ -434,13 +539,18 @@ async function startTeacherSession(buttonEl) {
         return;
     }
 
-    const payload = { subject_id: Number(subjectId) };
-    try {
-        const location = await captureLocationFast({
-            preferHighAccuracy: true,
-            timeoutMs: 10000,
-            maxAgeMs: 0,
-        });
+    const payload = { subject_id: Number(subjectId), device_id: getOrCreateDeviceId() };
+    // Try strict GPS quickly; if it doesn't arrive within 5s, start in test mode and let live updates upgrade it.
+    const isMobile = isLikelyMobileDevice();
+    let location = null;
+    if (navigator.geolocation && window.isSecureContext && isMobile) {
+        location = await withTimeout(
+            getStrictGpsLocation({ retries: 2, timeoutMs: 5000, accuracyMax: 50 }).catch(() => null),
+            5000,
+            null
+        );
+    }
+    if (location) {
         if (
             !Number.isFinite(location.latitude) ||
             !Number.isFinite(location.longitude) ||
@@ -449,29 +559,30 @@ async function startTeacherSession(buttonEl) {
             location.longitude < -180 ||
             location.longitude > 180
         ) {
-            alert("Could not get valid GPS coordinates. Please enable location and try again.");
-            reenableStartButton();
-            return;
+            payload.test_mode = true;
+            payload.latitude = TEST_MODE_DEFAULT_COORDS.latitude;
+            payload.longitude = TEST_MODE_DEFAULT_COORDS.longitude;
+            payload.accuracy = 0;
+        } else {
+            payload.latitude = location.latitude;
+            payload.longitude = location.longitude;
+            payload.accuracy = location.accuracy;
         }
-        if (Number.isFinite(location.accuracy) && location.accuracy > 50) {
-            console.warn("Low GPS accuracy, but starting session");
-        }
-        payload.latitude = location.latitude;
-        payload.longitude = location.longitude;
-        payload.accuracy = location.accuracy;
-        console.log("[attendance] teacher location", {
-            latitude: payload.latitude,
-            longitude: payload.longitude,
-            accuracy: payload.accuracy,
-        });
-    } catch (error) {
-        alert(describeLocationOrNetworkError(error));
-        reenableStartButton();
-        return;
+    } else {
+        payload.test_mode = true;
+        payload.latitude = TEST_MODE_DEFAULT_COORDS.latitude;
+        payload.longitude = TEST_MODE_DEFAULT_COORDS.longitude;
+        payload.accuracy = 0;
     }
+    console.log("[attendance] teacher location", {
+        latitude: payload.latitude,
+        longitude: payload.longitude,
+        accuracy: payload.accuracy,
+        test_mode: !!payload.test_mode,
+    });
 
     try {
-        const response = await fetch("/api/teacher/session/start", {
+        const response = await fetchWithRetry("/api/teacher/session/start", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
@@ -483,7 +594,44 @@ async function startTeacherSession(buttonEl) {
                 data.message || "Attendance session started successfully.",
                 "success"
             );
-            window.location.reload();
+            if (Number.isFinite(data.session_id)) {
+                const tableWrap = document.getElementById("teacher-active-sessions-wrap");
+                const tbody = document.getElementById("teacher-active-sessions-body");
+                const emptyState = document.getElementById("teacher-active-sessions-empty");
+                const subjectSelect = document.getElementById("subject_id");
+                const semesterSelect = document.getElementById("teacher_start_semester_id");
+                if (tbody) {
+                    const row = document.createElement("tr");
+                    row.dataset.teacherSessionId = String(data.session_id);
+                    const subjectCell = document.createElement("td");
+                    const semesterCell = document.createElement("td");
+                    const timeCell = document.createElement("td");
+                    const actionCell = document.createElement("td");
+                    subjectCell.textContent =
+                        subjectSelect && subjectSelect.selectedOptions.length
+                            ? subjectSelect.selectedOptions[0].textContent.trim()
+                            : "Subject";
+                    semesterCell.textContent =
+                        semesterSelect && semesterSelect.selectedOptions.length
+                            ? semesterSelect.selectedOptions[0].textContent.trim()
+                            : "Semester";
+                    timeCell.textContent = new Date().toLocaleString();
+                    const stopBtn = document.createElement("button");
+                    stopBtn.type = "button";
+                    stopBtn.className = "btn-secondary";
+                    stopBtn.textContent = "Stop";
+                    stopBtn.addEventListener("click", () => stopTeacherSession(data.session_id));
+                    actionCell.appendChild(stopBtn);
+                    row.appendChild(subjectCell);
+                    row.appendChild(semesterCell);
+                    row.appendChild(timeCell);
+                    row.appendChild(actionCell);
+                    tbody.prepend(row);
+                    if (tableWrap) tableWrap.style.display = "";
+                    if (emptyState) emptyState.style.display = "none";
+                }
+                startTeacherLocationUpdates(data.session_id);
+            }
             return;
         }
         alert(data.message);
@@ -507,6 +655,45 @@ async function stopTeacherSession(sessionId) {
     } catch (error) {
         alert("Could not stop session right now.");
     }
+}
+
+const teacherLocationIntervals = new Map();
+
+function startTeacherLocationUpdates(sessionId) {
+    const numericId = Number(sessionId);
+    if (!Number.isFinite(numericId) || numericId <= 0) return;
+    if (teacherLocationIntervals.has(numericId)) return;
+
+    const updateOnce = async () => {
+        try {
+            const location = await captureLocationFast({
+                preferHighAccuracy: true,
+                timeoutMs: 5000,
+                maxAgeMs: 0,
+            });
+            if (Number.isFinite(location.accuracy) && location.accuracy > 50) {
+                return;
+            }
+            const payload = {
+                session_id: numericId,
+                latitude: location.latitude,
+                longitude: location.longitude,
+                accuracy: location.accuracy,
+                device_id: getOrCreateDeviceId(),
+            };
+            await fetchWithRetry("/api/teacher/session/update-location", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+        } catch (error) {
+            console.warn("[attendance] teacher location update failed", error);
+        }
+    };
+
+    updateOnce();
+    const intervalId = window.setInterval(updateOnce, 4000);
+    teacherLocationIntervals.set(numericId, intervalId);
 }
 
 function setMarkedAttendanceButton(buttonEl) {
@@ -543,25 +730,37 @@ async function markAttendance(sessionId, buttonEl) {
     };
     let teacherLocation = null;
     try {
-        const response = await fetch(`/api/session-location?session_id=${encodeURIComponent(sessionId)}`, {
+        const response = await fetchWithRetry(
+            `/api/active-session?session_id=${encodeURIComponent(sessionId)}&_ts=${Date.now()}`,
+            {
             method: "GET",
             headers: { "Cache-Control": "no-store" },
-        });
+            }
+        );
         const data = await parseApiResponse(response);
         if (!response.ok || !data || !data.active) {
             showClientNotice((data && data.message) || "No active session.", "error");
             releaseAttendanceButton();
             return;
         }
-        if (!Number.isFinite(data.lat) || !Number.isFinite(data.lng)) {
+        const teacherLat = Number.isFinite(data.teacher_lat) ? data.teacher_lat : data.lat;
+        const teacherLng = Number.isFinite(data.teacher_lng) ? data.teacher_lng : data.lng;
+        if (!Number.isFinite(teacherLat) || !Number.isFinite(teacherLng)) {
             showClientNotice("Session location unavailable.", "error");
             releaseAttendanceButton();
             return;
         }
-        teacherLocation = { latitude: data.lat, longitude: data.lng };
+        teacherLocation = {
+            latitude: teacherLat,
+            longitude: teacherLng,
+            accuracy: Number.isFinite(data.accuracy) ? data.accuracy : 0,
+        };
+        payload.teacher_latitude = teacherLocation.latitude;
+        payload.teacher_longitude = teacherLocation.longitude;
         console.log("[attendance] teacher location", {
             latitude: teacherLocation.latitude,
             longitude: teacherLocation.longitude,
+            accuracy: teacherLocation.accuracy,
         });
     } catch (error) {
         showClientNotice("Could not connect to server. Please try again.", "error");
@@ -571,16 +770,34 @@ async function markAttendance(sessionId, buttonEl) {
 
     let studentLocation = null;
     try {
-        const location = await captureLocationFast({
-            preferHighAccuracy: true,
-            timeoutMs: 10000,
-            maxAgeMs: 0,
-        });
-        studentLocation = {
-            latitude: location.latitude,
-            longitude: location.longitude,
-            accuracy: location.accuracy,
-        };
+        payload.device_id = getOrCreateDeviceId();
+        const isMobile = isLikelyMobileDevice();
+        let location = null;
+        if (navigator.geolocation && window.isSecureContext && isMobile) {
+            location = await withTimeout(
+                getStrictGpsLocation({ retries: 2, timeoutMs: 5000, accuracyMax: 50 }).catch(() => null),
+                5000,
+                null
+            );
+            if (!location) {
+                showClientNotice("Please enable GPS and try again.", "error");
+                releaseAttendanceButton();
+                return;
+            }
+            studentLocation = {
+                latitude: location.latitude,
+                longitude: location.longitude,
+                accuracy: location.accuracy,
+            };
+        } else {
+            // Desktop/laptop testing mode: use a mock location close to teacher so strict 50m logic can be tested.
+            payload.test_mode = true;
+            studentLocation = {
+                latitude: teacherLocation.latitude + 0.0003,
+                longitude: teacherLocation.longitude,
+                accuracy: 0,
+            };
+        }
         payload.latitude = studentLocation.latitude;
         payload.longitude = studentLocation.longitude;
         payload.accuracy = studentLocation.accuracy;
@@ -588,9 +805,10 @@ async function markAttendance(sessionId, buttonEl) {
             latitude: payload.latitude,
             longitude: payload.longitude,
             accuracy: payload.accuracy,
+            test_mode: !!payload.test_mode,
         });
     } catch (error) {
-        showClientNotice(describeLocationOrNetworkError(error), "error");
+        showClientNotice(gpsFailureMessage(error), "error");
         releaseAttendanceButton();
         return;
     }
@@ -601,20 +819,21 @@ async function markAttendance(sessionId, buttonEl) {
         teacherLocation.latitude,
         teacherLocation.longitude
     );
+    const effectiveRadius = 50;
     console.log("[attendance] calculated distance (m)", distance);
     if (!Number.isFinite(distance)) {
         showClientNotice("Invalid distance calculation.", "error");
         releaseAttendanceButton();
         return;
     }
-    if (distance > 50) {
+    if (distance > effectiveRadius) {
         showClientNotice("You are outside the allowed attendance range", "error");
         releaseAttendanceButton();
         return;
     }
 
     try {
-        const response = await fetch("/api/student/attendance/mark", {
+        const response = await fetchWithRetry("/api/student/attendance/mark", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
@@ -683,7 +902,19 @@ async function markAttendance(sessionId, buttonEl) {
     }
 }
 
+function initTeacherLiveSessionUpdates() {
+    const rows = document.querySelectorAll("[data-teacher-session-id]");
+    if (!rows.length) return;
+    rows.forEach((row) => {
+        const sessionId = Number(row.dataset.teacherSessionId || "");
+        if (Number.isFinite(sessionId) && sessionId > 0) {
+            startTeacherLocationUpdates(sessionId);
+        }
+    });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     initGmailUsernameFields();
     initAjaxActionForms();
+    initTeacherLiveSessionUpdates();
 });

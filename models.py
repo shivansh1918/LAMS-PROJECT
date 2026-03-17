@@ -102,6 +102,21 @@ class AttendanceSession(db.Model):
     location_accuracy = db.Column(db.Float, nullable=True)
     location_enforced = db.Column(db.Boolean, default=True, nullable=False)
     attendance_verified = db.Column(db.Boolean, default=False, nullable=False)
+    device_id = db.Column(db.String(80), nullable=True)
+    device_fingerprint = db.Column(db.String(255), nullable=True)
+    last_location_update = db.Column(db.DateTime, nullable=True)
+
+
+class TeacherLocationHistory(db.Model):
+    __tablename__ = "teacher_location_history"
+
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, db.ForeignKey("attendance_sessions.id"), nullable=False)
+    teacher_id = db.Column(db.Integer, db.ForeignKey("teachers.id"), nullable=False)
+    latitude = db.Column(db.Float, nullable=False)
+    longitude = db.Column(db.Float, nullable=False)
+    accuracy = db.Column(db.Float, nullable=True)
+    captured_at = db.Column(db.DateTime, server_default=db.func.current_timestamp(), nullable=False)
 
 
 class Attendance(db.Model):
@@ -162,6 +177,21 @@ def init_db(app):
             "attendance_sessions",
             "location_accuracy",
             "location_accuracy FLOAT",
+        )
+        _add_column_if_missing(
+            "attendance_sessions",
+            "device_id",
+            "device_id VARCHAR(80)",
+        )
+        _add_column_if_missing(
+            "attendance_sessions",
+            "device_fingerprint",
+            "device_fingerprint VARCHAR(255)",
+        )
+        _add_column_if_missing(
+            "attendance_sessions",
+            "last_location_update",
+            "last_location_update DATETIME",
         )
         _add_column_if_missing(
             "attendance",
