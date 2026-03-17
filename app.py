@@ -1928,8 +1928,8 @@ def mark_attendance():
     allowed_radius = 50.0
     teacher_accuracy = max(float(getattr(active_session, "location_accuracy", 0.0) or 0.0), 0.0)
     student_accuracy = max(float(accuracy or 0.0), 0.0)
-    # Allow a buffer for GPS error from either device, capped to avoid unlimited radius.
-    accuracy_buffer = min(max(teacher_accuracy, student_accuracy), 50.0)
+    # Strict 50 m rule. Accuracies are logged for diagnostics but do not widen the radius.
+    accuracy_buffer = 0.0
     effective_radius = allowed_radius + accuracy_buffer
     rounded_distance = round(distance, 2)
     app.logger.info(

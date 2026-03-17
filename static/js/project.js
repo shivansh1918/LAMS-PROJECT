@@ -320,13 +320,13 @@ function describeLocationOrNetworkError(error) {
     if (!error) return "Unable to capture location or connect to server.";
     if (typeof error.code === "number") {
         if (error.code === 1) {
-            return "Please enable location to mark attendance.";
+            return "Please enable GPS and grant location permission.";
         }
         if (error.code === 2) {
             return "Live location is unavailable. Turn on device Location Services (GPS), then retry.";
         }
         if (error.code === 3) {
-            return "Location request timed out. Please retry after enabling GPS/location services.";
+            return "Please enable GPS and grant location permission.";
         }
     }
     if (error instanceof TypeError) {
@@ -392,6 +392,38 @@ async function parseApiResponse(response) {
     return { success: false, message: text || "Unexpected server response." };
 }
 
+async function requestLocationWithRetries({
+    attempts = 3,
+    timeoutMs = 20000,
+    preferHighAccuracy = true,
+    maxAgeMs = 0,
+    onRetry = null,
+} = {}) {
+    let lastError = null;
+    for (let i = 0; i < attempts; i += 1) {
+        try {
+            return await captureLocationFast({
+                preferHighAccuracy,
+                timeoutMs,
+                maxAgeMs,
+            });
+        } catch (error) {
+            if (error && error.code === 1) {
+                // Permission denied - don't keep retrying.
+                throw error;
+            }
+            lastError = error;
+            if (i < attempts - 1) {
+                if (typeof onRetry === "function") {
+                    onRetry(i + 1);
+                }
+                await waitMs(400);
+            }
+        }
+    }
+    throw lastError || new Error("Please enable GPS and grant location permission.");
+}
+
 async function startTeacherSession(buttonEl) {
     const subjectSelect = document.getElementById("subject_id");
     const subjectId = subjectSelect ? subjectSelect.value : "";
@@ -424,10 +456,12 @@ async function startTeacherSession(buttonEl) {
 
     const payload = { subject_id: Number(subjectId) };
     try {
-        const location = await captureLocationFast({
+        const location = await requestLocationWithRetries({
+            attempts: 3,
             preferHighAccuracy: true,
-            timeoutMs: 10000,
+            timeoutMs: 20000,
             maxAgeMs: 0,
+            onRetry: () => showClientNotice("Fetching location, retrying...", "info", 1400),
         });
         if (
             !Number.isFinite(location.latitude) ||
@@ -522,10 +556,12 @@ async function markAttendance(sessionId, buttonEl) {
         }
     };
     try {
-        const location = await captureLocationFast({
+        const location = await requestLocationWithRetries({
+            attempts: 3,
             preferHighAccuracy: true,
-            timeoutMs: 10000,
+            timeoutMs: 20000,
             maxAgeMs: 0,
+            onRetry: () => showClientNotice("Fetching location, retrying...", "info", 1400),
         });
         payload.latitude = location.latitude;
         payload.longitude = location.longitude;
