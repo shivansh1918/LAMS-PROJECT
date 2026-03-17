@@ -1926,10 +1926,14 @@ def mark_attendance():
         return jsonify({"success": False, "message": "Invalid distance calculation."}), 400
 
     allowed_radius = 50.0
-    effective_radius = allowed_radius
+    teacher_accuracy = max(float(getattr(active_session, "location_accuracy", 0.0) or 0.0), 0.0)
+    student_accuracy = max(float(accuracy or 0.0), 0.0)
+    # Allow a buffer for GPS error from either device, capped to avoid unlimited radius.
+    accuracy_buffer = min(max(teacher_accuracy, student_accuracy), 50.0)
+    effective_radius = allowed_radius + accuracy_buffer
     rounded_distance = round(distance, 2)
     app.logger.info(
-        "Attendance distance check | student=(%s,%s acc=%.2f) teacher=(%s,%s acc=%.2f) distance_m=%.2f radius=%.2f",
+        "Attendance distance check | student=(%s,%s acc=%.2f) teacher=(%s,%s acc=%.2f) distance_m=%.2f radius=%.2f eff_radius=%.2f",
         latitude,
         longitude,
         accuracy,
@@ -1937,6 +1941,7 @@ def mark_attendance():
         session_longitude,
         getattr(active_session, "location_accuracy", 0.0) or 0.0,
         rounded_distance,
+        effective_radius,
         effective_radius,
     )
     if distance > effective_radius:
@@ -1955,6 +1960,7 @@ def mark_attendance():
                     "message": "You are outside the allowed attendance range.",
                     "distance": rounded_distance,
                     "allowed_radius": allowed_radius,
+                    "effective_radius": effective_radius,
                     "student_latitude": latitude,
                     "student_longitude": longitude,
                     "teacher_latitude": session_latitude,
@@ -1965,16 +1971,17 @@ def mark_attendance():
     existing = Attendance.query.filter_by(student_id=student.id, session_id=active_session.id).first()
     if existing:
         return jsonify(
-            {
-                "success": True,
-                "message": "Attendance already marked for this active session.",
-                "already_marked": True,
-                "distance": rounded_distance,
-                "student_latitude": latitude,
-                "student_longitude": longitude,
-                "teacher_latitude": session_latitude,
-                "teacher_longitude": session_longitude,
-            }
+        {
+            "success": True,
+            "message": "Attendance already marked for this active session.",
+            "already_marked": True,
+            "distance": rounded_distance,
+            "effective_radius": effective_radius,
+            "student_latitude": latitude,
+            "student_longitude": longitude,
+            "teacher_latitude": session_latitude,
+            "teacher_longitude": session_longitude,
+        }
         ), 200
 
     # Auto-verified because distance check is enforced at marking time.
@@ -1998,6 +2005,7 @@ def mark_attendance():
             "success": True,
             "message": message,
             "distance": rounded_distance,
+            "effective_radius": effective_radius,
             "student_latitude": latitude,
             "student_longitude": longitude,
             "teacher_latitude": session_latitude,
