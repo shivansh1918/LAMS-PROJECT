@@ -198,6 +198,48 @@ def set_admin_registration_lock(is_locked):
     db.session.commit()
 
 
+def is_student_registration_open():
+    setting = SystemSetting.query.filter_by(key="student_registration_open").first()
+    return bool(setting and setting.value == "1")
+
+
+def set_student_registration_open(is_open):
+    setting = SystemSetting.query.filter_by(key="student_registration_open").first()
+    value = "1" if is_open else "0"
+    if setting:
+        setting.value = value
+    else:
+        setting = SystemSetting(key="student_registration_open", value=value)
+        db.session.add(setting)
+    db.session.commit()
+
+
+def get_current_academic_session():
+    setting = SystemSetting.query.filter_by(key="current_academic_session").first()
+    return setting.value if setting else None
+
+
+def set_current_academic_session(label):
+    setting = SystemSetting.query.filter_by(key="current_academic_session").first()
+    if setting:
+        setting.value = label
+    else:
+        setting = SystemSetting(key="current_academic_session", value=label)
+        db.session.add(setting)
+    db.session.commit()
+
+
+def generate_next_session_label(current_label=None):
+    if current_label:
+        parts = current_label.strip().split("-")
+        if len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].isdigit():
+            start_year = int(parts[0])
+            next_start = start_year + 1
+            return f"{next_start}-{str(next_start + 1)[-2:]}"
+    year = datetime.now().year
+    return f"{year}-{str(year + 1)[-2:]}"
+
+
 def student_self_registration_blocked(email, roll_no):
     email = (email or "").strip().lower()
     roll_no = (roll_no or "").strip().upper()
@@ -257,6 +299,18 @@ def register_student():
         return blocked
 
     semesters = get_allowed_semesters()
+    registration_open = is_student_registration_open()
+    if not registration_open:
+        flash("Student registration is currently closed. Please contact the admin.", "error")
+        return render_template("register_student.html", semesters=semesters)
+
+    current_session = get_current_academic_session()
+    if not current_session:
+        flash(
+            "Registration is not available. Please wait for admin to start a new session",
+            "error",
+        )
+        return render_template("register_student.html", semesters=semesters)
 
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -295,10 +349,6 @@ def register_student():
             return render_template("register_student.html", semesters=semesters)
         if semester.name not in ALLOWED_SEMESTER_NAMES:
             flash("Only fixed semesters are allowed.", "error")
-            return render_template("register_student.html", semesters=semesters)
-
-        if student_self_registration_blocked(email, roll_no):
-            flash("You cannot self-register. Please contact admin to add your account.", "error")
             return render_template("register_student.html", semesters=semesters)
 
         existing_user = User.query.filter_by(email=email).first()
@@ -358,78 +408,6 @@ def register_student():
         return redirect(url_for("login"))
 
     return render_template("register_student.html", semesters=semesters)
-
-
-@app.route("/register/teacher", methods=["GET", "POST"])
-def register_teacher():
-    blocked = block_registration_for_logged_in_user()
-    if blocked:
-        return blocked
-
-    if request.method == "POST":
-        teacher_id = request.form.get("teacher_id", "").strip().upper()
-        name = request.form.get("name", "").strip()
-        email_raw = request.form.get("email", "").strip() or request.form.get("email_username", "").strip()
-        password = request.form.get("password", "")
-        department = request.form.get("department", "").strip()
-
-        email, email_error = normalize_gmail_email(email_raw)
-        if email_error:
-            flash(email_error, "error")
-            return render_template("register_teacher.html")
-
-        if not teacher_id:
-            flash("Teacher ID is required.", "error")
-            return render_template("register_teacher.html")
-
-        if not all([teacher_id, name, email, password, department]):
-            flash("All fields are required.", "error")
-            return render_template("register_teacher.html")
-
-        # Teacher ID is entered during registration and must remain unique.
-        if not teacher_id.replace("-", "").replace("_", "").isalnum():
-            flash("Teacher ID can contain only letters, numbers, '-' and '_'.", "error")
-            return render_template("register_teacher.html")
-
-        if User.query.filter_by(email=email).first():
-            flash("Email is already registered.", "error")
-            return render_template("register_teacher.html")
-        if Teacher.query.filter_by(teacher_id=teacher_id).first():
-            flash("Teacher ID already exists. Please use a unique Teacher ID.", "error")
-            return render_template("register_teacher.html")
-
-        user = User(
-            role="teacher",
-            name=name,
-            email=email,
-            password=generate_password_hash(password),
-            email_verified=True,
-        )
-        db.session.add(user)
-        db.session.flush()
-
-        teacher_profile = Teacher(
-            user_id=user.id,
-            teacher_id=teacher_id,
-            department=department,
-            mobile_no=None,
-        )
-        db.session.add(teacher_profile)
-        try:
-            db.session.commit()
-        except IntegrityError:
-            db.session.rollback()
-            flash("Teacher ID already exists. Please use a unique Teacher ID.", "error")
-            return render_template("register_teacher.html")
-
-        # Redirect to common login with auto-filled credentials.
-        session["prefill_login_email"] = email
-        session["prefill_login_password"] = password
-        session["prefill_login_role"] = "teacher"
-        flash(f"Teacher registration successful. Your Teacher ID is {teacher_profile.teacher_id}.", "success")
-        return redirect(url_for("login"))
-
-    return render_template("register_teacher.html")
 
 
 @app.route("/register/admin", methods=["GET", "POST"])
@@ -909,6 +887,8 @@ def verify_teacher_marked_attendance(attendance_id):
 def admin_dashboard():
     semesters = get_allowed_semesters()
     current_semester = get_current_semester()
+    current_academic_session = get_current_academic_session()
+    registration_open = is_student_registration_open()
     admin_user = db.session.get(User, session["user_id"])
     subjects = (
         db.session.query(Subject, Semester)
@@ -932,7 +912,7 @@ def admin_dashboard():
     )
 
     teachers = (
-        db.session.query(Teacher, User)
+        db.session.query(Teacher, User) 
         .join(User, User.id == Teacher.user_id)
         .filter(User.role == "teacher")
         .order_by(User.name)
@@ -1041,39 +1021,16 @@ def admin_dashboard():
                 "percentage": percentage,
             }
 
-    percentage_students_query = (
-        db.session.query(Student, User, Semester)
-        .join(User, User.id == Student.user_id)
-        .join(Semester, Semester.id == Student.semester_id)
-    )
-    percentage_students = percentage_students_query.order_by(
-        func.lower(User.name).asc(),
-        Student.roll_no.asc(),
-    ).all()
-
     percentage_report = []
-    for student, user, semester in percentage_students:
-        total_sessions = (
-            db.session.query(func.count(AttendanceSession.id))
-            .join(Subject, Subject.id == AttendanceSession.subject_id)
-            .filter(Subject.semester_id == student.semester_id)
-            .scalar()
-        )
-        present = Attendance.query.filter_by(student_id=student.id).count()
-        percentage = round((present / total_sessions) * 100, 2) if total_sessions else 0
-        percentage_report.append(
-            {
-                "student_id": student.id,
-                "name": user.name,
-                "roll_no": student.roll_no,
-                "semester": semester.name,
-                "semester_id": student.semester_id,
-                "present": present,
-                "total": total_sessions,
-                "percentage": percentage,
-            }
-        )
-
+    report_total_students = 0
+    report_above_75 = 0
+    report_semester_name = "All Semesters"
+    if report_semester_id:
+        built_report = build_percentage_report_for_semester(report_semester_id)
+        if built_report:
+            percentage_report, report_semester_name = built_report
+            report_total_students = len(percentage_report)
+            report_above_75 = sum(1 for item in percentage_report if item["percentage"] >= 75)
     total_attendance_records = Attendance.query.count()
     enabled_subject_count = Subject.query.filter_by(status=True).count()
     current_semester_attendance_count = 0
@@ -1085,13 +1042,8 @@ def admin_dashboard():
             .scalar()
             or 0
         )
-    report_total_students = len(percentage_report)
-    report_above_75 = sum(1 for item in percentage_report if item["percentage"] >= 75)
-    report_semester_name = "All Semesters"
-    if report_semester_id:
-        selected_report_semester = db.session.get(Semester, report_semester_id)
-        if selected_report_semester:
-            report_semester_name = selected_report_semester.name
+    if not report_semester_id:
+        report_semester_name = "All Semesters"
 
     filtered_subjects = subjects
     if filter_semester:
@@ -1124,6 +1076,8 @@ def admin_dashboard():
     return render_template(
         "admin_dashboard.html",
         admin_user=admin_user,
+        current_academic_session=current_academic_session,
+        registration_open=registration_open,
         current_semester=current_semester,
         semesters=semesters,
         subjects=subjects,
@@ -1154,6 +1108,30 @@ def admin_dashboard():
         admin_students_roster=admin_students_roster,
         attendance_date_iso=attendance_date_selected.isoformat() if attendance_date_selected else "",
         attendance_date_display=attendance_date_selected.strftime("%d/%m/%Y") if attendance_date_selected else "",
+    )
+
+
+@app.get("/api/admin/report/percentage")
+@login_required(role="admin")
+def api_admin_percentage_report():
+    semester_id = request.args.get("semester_id", type=int)
+    if not semester_id:
+        return jsonify({"success": False, "message": "Semester is required."}), 400
+
+    built_report = build_percentage_report_for_semester(semester_id)
+    if not built_report:
+        return jsonify({"success": False, "message": "Invalid semester selected."}), 400
+
+    report, semester_name = built_report
+    report_above_75 = sum(1 for item in report if item["percentage"] >= 75)
+    return jsonify(
+        {
+            "success": True,
+            "students": report,
+            "report_semester_name": semester_name,
+            "report_total_students": len(report),
+            "report_above_75": report_above_75,
+        }
     )
 
 
@@ -1196,26 +1174,12 @@ def clear_current_semester_data():
         flash("No current semester selected.", "error")
         return redirect(url_for("admin_dashboard"))
 
-    session_ids_query = db.session.query(AttendanceSession.id).filter(
-        AttendanceSession.semester_id == current_semester.id
-    )
-    subject_ids_query = db.session.query(Subject.id).filter(
-        Subject.semester_id == current_semester.id
-    )
-
-    Attendance.query.filter(Attendance.session_id.in_(session_ids_query)).delete(
-        synchronize_session=False
-    )
-    Attendance.query.filter(Attendance.subject_id.in_(subject_ids_query)).delete(
-        synchronize_session=False
-    )
-    AttendanceSession.query.filter_by(semester_id=current_semester.id).delete(
-        synchronize_session=False
-    )
+    students_in_semester = Student.query.filter_by(semester_id=current_semester.id).all()
+    for student in students_in_semester:
+        _delete_student_record(student)
     db.session.commit()
-
     flash(
-        f"Cleared attendance/session data for {current_semester.name}.",
+        f"Cleared student data for {current_semester.name}.",
         "success",
     )
     return redirect(url_for("admin_dashboard"))
@@ -1233,29 +1197,12 @@ def delete_semester_data():
         flash("Only fixed semesters are allowed.", "error")
         return redirect(url_for("admin_dashboard"))
 
-    subject_ids_query = db.session.query(Subject.id).filter(Subject.semester_id == semester.id)
-    session_ids_query = db.session.query(AttendanceSession.id).filter(
-        AttendanceSession.semester_id == semester.id
-    )
-
-    Attendance.query.filter(Attendance.session_id.in_(session_ids_query)).delete(
-        synchronize_session=False
-    )
-    Attendance.query.filter(Attendance.subject_id.in_(subject_ids_query)).delete(
-        synchronize_session=False
-    )
-    AttendanceSession.query.filter_by(semester_id=semester.id).delete(synchronize_session=False)
-    TeacherSubjectMap.query.filter(TeacherSubjectMap.subject_id.in_(subject_ids_query)).delete(
-        synchronize_session=False
-    )
-    Subject.query.filter_by(semester_id=semester.id).delete(synchronize_session=False)
-
     students_in_semester = Student.query.filter_by(semester_id=semester.id).all()
     for student in students_in_semester:
         _delete_student_record(student)
 
     db.session.commit()
-    flash(f"Deleted all data for {semester.name}.", "success")
+    flash(f"Deleted student data for {semester.name}.", "success")
     return redirect(url_for("admin_dashboard"))
 
 
@@ -1349,10 +1296,66 @@ def admin_add_student():
     return redirect(url_for("admin_dashboard"))
 
 
+@app.post("/admin/teacher/add")
+@login_required(role="admin")
+def admin_add_teacher():
+    name = request.form.get("name", "").strip()
+    teacher_id = request.form.get("teacher_id", "").strip().upper()
+    email_raw = request.form.get("email", "").strip()
+    password = request.form.get("password", "")
+    department = request.form.get("department", "").strip() or "General"
+
+    email, email_error = normalize_gmail_email(email_raw)
+    if email_error:
+        flash(email_error, "error")
+        return redirect(url_for("admin_dashboard"))
+
+    if not all([teacher_id, name, email, password]):
+        flash("Name, Teacher ID, Email, and Password are required.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    if not teacher_id.replace("-", "").replace("_", "").isalnum():
+        flash("Teacher ID can contain only letters, numbers, '-' and '_'.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    if User.query.filter_by(email=email).first():
+        flash("Email is already registered.", "error")
+        return redirect(url_for("admin_dashboard"))
+    if Teacher.query.filter_by(teacher_id=teacher_id).first():
+        flash("Teacher ID already exists. Please use a unique Teacher ID.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    user = User(
+        role="teacher",
+        name=name,
+        email=email,
+        password=generate_password_hash(password),
+        email_verified=True,
+        department=department,
+    )
+    db.session.add(user)
+    db.session.flush()
+
+    teacher_profile = Teacher(
+        user_id=user.id,
+        teacher_id=teacher_id,
+        department=department,
+        mobile_no=None,
+    )
+    db.session.add(teacher_profile)
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        flash("Teacher ID already exists. Please use a unique Teacher ID.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    flash(f"Teacher {teacher_profile.teacher_id} added successfully.", "success")
+    return redirect(url_for("admin_dashboard"))
+
+
 def _delete_student_record(student):
     user = db.session.get(User, student.user_id)
-    if user:
-        block_student_self_registration(user.email, student.roll_no)
 
     Attendance.query.filter_by(student_id=student.id).delete(synchronize_session=False)
     db.session.delete(student)
@@ -1387,6 +1390,45 @@ def _delete_teacher_record(teacher):
     db.session.delete(teacher)
     if user:
         db.session.delete(user)
+
+
+def build_percentage_report_for_semester(semester_id):
+    semester = db.session.get(Semester, semester_id)
+    if not semester or semester.name not in ALLOWED_SEMESTER_NAMES:
+        return None
+
+    percentage_students_query = (
+        db.session.query(Student, User, Semester)
+        .join(User, User.id == Student.user_id)
+        .join(Semester, Semester.id == Student.semester_id)
+        .filter(Student.semester_id == semester_id)
+        .order_by(func.lower(User.name).asc(), Student.roll_no.asc())
+    )
+    percentage_students = percentage_students_query.all()
+
+    report = []
+    for student, user, sem in percentage_students:
+        total_sessions = (
+            db.session.query(func.count(AttendanceSession.id))
+            .join(Subject, Subject.id == AttendanceSession.subject_id)
+            .filter(Subject.semester_id == student.semester_id)
+            .scalar()
+        )
+        present = Attendance.query.filter_by(student_id=student.id).count()
+        percentage = round((present / total_sessions) * 100, 2) if total_sessions else 0
+        report.append(
+            {
+                "student_id": student.id,
+                "name": user.name,
+                "roll_no": student.roll_no,
+                "semester": sem.name,
+                "semester_id": student.semester_id,
+                "present": present,
+                "total": total_sessions,
+                "percentage": percentage,
+            }
+        )
+    return report, semester.name
 
 
 @app.post("/admin/student/<int:student_id>/delete")
@@ -1510,6 +1552,18 @@ def delete_subject(subject_id):
 
     flash("Subject data deleted successfully.", "success")
     return redirect(url_for("admin_dashboard"))
+
+
+@app.post("/admin/registration/toggle")
+@login_required(role="admin")
+def toggle_student_registration():
+    is_open = is_student_registration_open()
+    set_student_registration_open(not is_open)
+    status = "open" if not is_open else "closed"
+    flash(f"Student registration is now {status}.", "success")
+    return redirect(url_for("admin_dashboard"))
+
+
 
 
 @app.post("/admin/teacher-subject/assign")
@@ -1697,7 +1751,22 @@ def start_session():
     db.session.add(new_session)
     db.session.commit()
 
-    return jsonify({"success": True, "message": "Attendance session started successfully."})
+    warning = None
+    if accuracy > 50:
+        warning = "Session started with low GPS accuracy. Please ensure location services are enabled."
+    app.logger.info(
+        "Session started | teacher_id=%s subject_id=%s lat=%s lon=%s acc=%.2f warning=%s",
+        teacher.id,
+        subject.id,
+        latitude,
+        longitude,
+        accuracy,
+        warning or "",
+    )
+    message = "Attendance session started successfully."
+    if warning:
+        message = f"{message} {warning}"
+    return jsonify({"success": True, "message": message, "warning": warning})
 
 
 @app.get("/api/teacher/subjects")
@@ -1811,27 +1880,87 @@ def mark_attendance():
     if accuracy < 0:
         accuracy = 0.0
 
+
     # Strict 50-meter geofence check with GPS accuracy tolerance.
+    try:
+        session_latitude = float(active_session.latitude)
+        session_longitude = float(active_session.longitude)
+    except (TypeError, ValueError):
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": "Session location is unavailable. Ask the teacher to restart the session.",
+                }
+            ),
+            400,
+        )
+    if not (math.isfinite(session_latitude) and math.isfinite(session_longitude)):
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": "Session location is unavailable. Ask the teacher to restart the session.",
+                }
+            ),
+            400,
+        )
+    if not (-90 <= session_latitude <= 90 and -180 <= session_longitude <= 180):
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "message": "Session location is unavailable. Ask the teacher to restart the session.",
+                }
+            ),
+            400,
+        )
+
     distance = haversine_meters(
         latitude,
         longitude,
-        active_session.latitude,
-        active_session.longitude,
+        session_latitude,
+        session_longitude,
     )
     if not math.isfinite(distance):
         return jsonify({"success": False, "message": "Invalid distance calculation."}), 400
 
     allowed_radius = 50.0
+    effective_radius = allowed_radius
     rounded_distance = round(distance, 2)
-    if distance > allowed_radius:
-        return jsonify(
-            {
-                "success": False,
-                "message": "You are outside the allowed attendance range.",
-                "distance": rounded_distance,
-                "allowed_radius": allowed_radius,
-            }
-        ), 403
+    app.logger.info(
+        "Attendance distance check | student=(%s,%s acc=%.2f) teacher=(%s,%s acc=%.2f) distance_m=%.2f radius=%.2f",
+        latitude,
+        longitude,
+        accuracy,
+        session_latitude,
+        session_longitude,
+        getattr(active_session, "location_accuracy", 0.0) or 0.0,
+        rounded_distance,
+        effective_radius,
+    )
+    if distance > effective_radius:
+        # Double-check after recalculating to rule out transient float issues.
+        distance = haversine_meters(
+            latitude,
+            longitude,
+            session_latitude,
+            session_longitude,
+        )
+        rounded_distance = round(distance, 2)
+        if distance > effective_radius:
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "You are outside the allowed attendance range.",
+                    "distance": rounded_distance,
+                    "allowed_radius": allowed_radius,
+                    "student_latitude": latitude,
+                    "student_longitude": longitude,
+                    "teacher_latitude": session_latitude,
+                    "teacher_longitude": session_longitude,
+                }
+            ), 403
 
     existing = Attendance.query.filter_by(student_id=student.id, session_id=active_session.id).first()
     if existing:
@@ -1841,6 +1970,10 @@ def mark_attendance():
                 "message": "Attendance already marked for this active session.",
                 "already_marked": True,
                 "distance": rounded_distance,
+                "student_latitude": latitude,
+                "student_longitude": longitude,
+                "teacher_latitude": session_latitude,
+                "teacher_longitude": session_longitude,
             }
         ), 200
 
@@ -1860,7 +1993,17 @@ def mark_attendance():
     db.session.commit()
 
     message = f"Attendance marked successfully. Distance: {rounded_distance}m."
-    return jsonify({"success": True, "message": message, "distance": rounded_distance})
+    return jsonify(
+        {
+            "success": True,
+            "message": message,
+            "distance": rounded_distance,
+            "student_latitude": latitude,
+            "student_longitude": longitude,
+            "teacher_latitude": session_latitude,
+            "teacher_longitude": session_longitude,
+        }
+    )
 
 
 if __name__ == "__main__":

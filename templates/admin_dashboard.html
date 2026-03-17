@@ -20,6 +20,10 @@
         <span class="sub-icon">AS</span>
         <span>Add Student</span>
     </button>
+    <button type="button" class="users-sub-btn" data-target="add-teacher">
+        <span class="sub-icon">AT</span>
+        <span>Add Teacher</span>
+    </button>
     <button type="button" class="users-sub-btn" data-target="delete-data">
         <span class="sub-icon">DD</span>
         <span>Delete Data</span>
@@ -54,6 +58,14 @@
 
 <div class="card admin-panel" data-panel="semester">
     <h3>Semester Management</h3>
+    <p><b>Student Registration:</b> {{ "Open" if registration_open else "Closed" }}</p>
+    <div class="row" style="margin-top: 8px;">
+        <form method="post" action="{{ url_for('toggle_student_registration') }}">
+            <button type="submit" class="btn-secondary">
+                {{ "Close Registration" if registration_open else "Open Registration" }}
+            </button>
+        </form>
+    </div>
     <form
         method="post"
         action="{{ url_for('delete_semester_data') }}"
@@ -155,6 +167,36 @@
             </div>
         </div>
         <button type="submit">Add Student</button>
+    </form>
+</div>
+
+<div class="card admin-panel users-sub-panel" data-panel="users" data-user-panel="add-teacher">
+    <h3>Add Teacher Account</h3>
+    <form method="post" action="{{ url_for('admin_add_teacher') }}" data-ajax-action="1" data-ajax-success-message="Teacher added successfully.">
+        <div class="row">
+            <div>
+                <label for="teach_name">Name</label>
+                <input id="teach_name" name="name" required>
+            </div>
+            <div>
+                <label for="teach_teacher_id">Teacher ID</label>
+                <input id="teach_teacher_id" name="teacher_id" required>
+            </div>
+            <div>
+                <label for="teach_email">Email</label>
+                <input id="teach_email" type="email" name="email" placeholder="Gmail account" required>
+            </div>
+            <div>
+                <label for="teach_password">Password</label>
+                <input id="teach_password" type="password" name="password" required>
+            </div>
+            <div>
+                <label for="teach_department">Department</label>
+                <input id="teach_department" name="department" placeholder="Optional">
+            </div>
+        </div>
+        <p class="form-note">Teacher accounts are assigned the teacher role automatically and verified by default.</p>
+        <button type="submit">Add Teacher</button>
     </form>
 </div>
 
@@ -380,11 +422,11 @@
         </div>
         <div class="stats-card stats-card-clickable" data-stats-action="report-75plus">
             <p>Students >= 75%</p>
-            <h4>{{ report_above_75 }}</h4>
+            <h4 data-report-stat="above75">{{ report_above_75 }}</h4>
         </div>
         <div class="stats-card stats-card-clickable" data-stats-action="report-current-filter">
             <p>Current Filter</p>
-            <h4>{{ report_semester_name }}</h4>
+            <h4 data-report-stat="filter">{{ report_semester_name }}</h4>
         </div>
     </div>
     <form id="percentage-filter-form" method="get" class="row" style="margin-bottom: 12px;" action="{{ url_for('admin_dashboard') }}#percentage-report">
@@ -399,7 +441,7 @@
         </div>
         <div>
             <label>&nbsp;</label>
-            <button type="submit">Get Students</button>
+            <button type="submit" id="load-report-btn">Get Students</button>
         </div>
     </form>
     <div class="table-wrap">
@@ -415,7 +457,7 @@
                     <th>Delete</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="percentage-report-body">
                 {% for item in percentage_report %}
                     <tr data-semester-id="{{ item.semester_id }}" data-percentage="{{ item.percentage }}"
                         class="{{ 'attendance-low' if (item.percentage|float) < 75 else 'attendance-ok' }}">
@@ -450,20 +492,82 @@
         const viewButtons = document.querySelectorAll(".js-view-student");
         const percentageForm = document.getElementById("percentage-filter-form");
         const semesterSelect = document.getElementById("report_semester_id");
-        const percentageRows = document.querySelectorAll("#percentage-report tbody tr[data-semester-id]");
+        const percentageReportBody = document.getElementById("percentage-report-body");
+        const percentageStatAbove = document.querySelector("[data-report-stat='above75']");
+        const percentageStatFilter = document.querySelector("[data-report-stat='filter']");
+        const loadReportButton = document.getElementById("load-report-btn");
         const toggleSubjectListBtn = document.getElementById("toggle-subject-list");
         const subjectListWrap = document.getElementById("subject-list-wrap");
         const statsCards = document.querySelectorAll(".stats-card-clickable");
         let currentUsersPanel = "students";
 
+        const getPercentageRows = () =>
+            document.querySelectorAll("#percentage-report tbody tr[data-semester-id]");
+
         function applyPercentageHighlight() {
-            percentageRows.forEach((row) => {
+            const rows = getPercentageRows();
+            rows.forEach((row) => {
                 const percentage = parseFloat(row.dataset.percentage || "0");
                 row.classList.toggle("attendance-low", percentage < 75);
                 row.classList.toggle("attendance-ok", percentage >= 75);
             });
         }
         applyPercentageHighlight();
+
+        function renderReportRows(students) {
+            if (!percentageReportBody) return;
+            if (!students || !students.length) {
+                percentageReportBody.innerHTML = "<tr><td colspan='7'>No report data available.</td></tr>";
+                applyPercentageHighlight();
+                return;
+            }
+            percentageReportBody.innerHTML = students
+                .map((item) => {
+                    const statusClass = Number(item.percentage) < 75 ? "attendance-low" : "attendance-ok";
+                    return `
+                        <tr data-semester-id="${item.semester_id}" data-percentage="${item.percentage}" class="${statusClass}">
+                            <td>${item.name}</td>
+                            <td>${item.roll_no}</td>
+                            <td>${item.semester}</td>
+                            <td>${item.present}</td>
+                            <td>${item.total}</td>
+                            <td>${item.percentage}%</td>
+                            <td>
+                                <form method="post" action="/admin/percentage/${item.student_id}/delete" data-ajax-action="1" data-ajax-remove-closest="tr" onsubmit="return confirm('Delete all attendance records for this student report?');">
+                                    <button type="submit" class="btn-secondary">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                    `;
+                })
+                .join("");
+            applyPercentageHighlight();
+            initAjaxActionForms();
+        }
+
+        async function loadPercentageReport(semesterId) {
+            if (!semesterId) return;
+            loadReportButton?.setAttribute("disabled", "true");
+            try {
+                const response = await fetch(`/api/admin/report/percentage?semester_id=${encodeURIComponent(semesterId)}`);
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    alert(data.message || "Could not load report data.");
+                    return;
+                }
+                if (percentageStatAbove) {
+                    percentageStatAbove.textContent = data.report_above_75 ?? "0";
+                }
+                if (percentageStatFilter) {
+                    percentageStatFilter.textContent = data.report_semester_name ?? "";
+                }
+                renderReportRows(data.students ?? []);
+            } catch (error) {
+                alert("Could not load percentage data right now. Please try again.");
+            } finally {
+                loadReportButton?.removeAttribute("disabled");
+            }
+        }
 
         function showUsersPanel(panelName) {
             currentUsersPanel = panelName || "students";
@@ -552,10 +656,11 @@
             percentageForm.addEventListener("submit", function (e) {
                 e.preventDefault();
                 const semesterId = semesterSelect ? semesterSelect.value : "";
-                percentageRows.forEach((row) => {
-                    row.style.display = !semesterId || row.dataset.semesterId === semesterId ? "" : "none";
-                });
-                applyPercentageHighlight();
+                if (!semesterId) {
+                    alert("Please select a semester before loading percentage data.");
+                    return;
+                }
+                loadPercentageReport(semesterId);
             });
         }
         statsCards.forEach((card) => {
@@ -564,14 +669,14 @@
                 if (action === "report-all") {
                     showPanel("report");
                     if (semesterSelect) semesterSelect.value = "";
-                    percentageRows.forEach((row) => {
+                    getPercentageRows().forEach((row) => {
                         row.style.display = "";
                     });
                     return;
                 }
                 if (action === "report-75plus") {
                     showPanel("report");
-                    percentageRows.forEach((row) => {
+                    getPercentageRows().forEach((row) => {
                         row.style.display = "";
                     });
                     applyPercentageHighlight();

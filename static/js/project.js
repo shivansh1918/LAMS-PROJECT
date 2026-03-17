@@ -110,10 +110,18 @@ function waitMs(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isFreshPosition(position, maxAgeMs) {
+    if (!position || !Number.isFinite(maxAgeMs) || maxAgeMs <= 0) return true;
+    const timestamp = Number(position.timestamp);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return true;
+    return Date.now() - timestamp <= maxAgeMs;
+}
+
 async function captureLocationWithWatch({
     preferHighAccuracy = true,
     targetAccuracy = 30,
     timeoutMs = 10000,
+    maxAgeMs = 15000,
 } = {}) {
     if (!navigator.geolocation) {
         throw new Error("Geolocation is not supported by this browser.");
@@ -156,6 +164,9 @@ async function captureLocationWithWatch({
         };
 
         const success = (position) => {
+            if (!isFreshPosition(position, maxAgeMs)) {
+                return;
+            }
             const accuracy = position.coords.accuracy || 0;
             const location = {
                 latitude: position.coords.latitude,
@@ -198,15 +209,17 @@ async function captureLocationWithWatch({
 async function captureLocation(options = {}) {
     const preferHighAccuracy = options.preferHighAccuracy !== false;
     const targetAccuracy = options.targetAccuracy ?? 30;
+    const maxAgeMs = options.maxAgeMs ?? 15000;
     const watchConfig = {
         ...options,
         preferHighAccuracy,
         targetAccuracy,
+        maxAgeMs,
     };
     let fallbackLocation = null;
 
     try {
-        const location = await getCurrentLocation({ preferHighAccuracy });
+        const location = await getCurrentLocation({ preferHighAccuracy, maxAgeMs });
         fallbackLocation = location;
         if (!targetAccuracy || (Number.isFinite(location.accuracy) && location.accuracy <= targetAccuracy)) {
             return location;
@@ -230,6 +243,33 @@ async function captureLocation(options = {}) {
     }
 }
 
+async function captureLocationFast(options = {}) {
+    const preferHighAccuracy = options.preferHighAccuracy !== false;
+    const maxAgeMs = options.maxAgeMs ?? 0;
+    if (!navigator.geolocation) {
+        throw new Error("Geolocation is not supported by this browser.");
+    }
+    if (!window.isSecureContext) {
+        throw new Error(
+            "Location is blocked on insecure pages. Open the app on localhost/127.0.0.1 or HTTPS."
+        );
+    }
+
+    const position = await getCurrentPositionOnce({
+        enableHighAccuracy: preferHighAccuracy,
+        timeout: options.timeoutMs ?? 10000,
+        maximumAge: 0,
+    });
+    if (!isFreshPosition(position, maxAgeMs)) {
+        throw new Error("Stale location received.");
+    }
+    return {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy || 0,
+    };
+}
+
 async function getCurrentLocation(options = {}) {
     if (!navigator.geolocation) {
         throw new Error("Geolocation is not supported by this browser.");
@@ -241,24 +281,22 @@ async function getCurrentLocation(options = {}) {
     }
 
     const preferHighAccuracy = options.preferHighAccuracy !== false;
+    const maxAgeMs = options.maxAgeMs ?? 15000;
     const attempts = preferHighAccuracy
         ? [
               { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
-              { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
               { enableHighAccuracy: false, timeout: 6000, maximumAge: 0 },
-              { enableHighAccuracy: false, timeout: 6000, maximumAge: 120000 },
           ]
-        : [
-              { enableHighAccuracy: false, timeout: 6000, maximumAge: 0 },
-              { enableHighAccuracy: false, timeout: 6000, maximumAge: 120000 },
-              { enableHighAccuracy: false, timeout: 6000, maximumAge: Infinity },
-          ];
+        : [{ enableHighAccuracy: false, timeout: 6000, maximumAge: 0 }];
 
     let lastError = null;
     for (const options of attempts) {
         for (let retry = 0; retry < 2; retry += 1) {
             try {
                 const position = await getCurrentPositionOnce(options);
+                if (!isFreshPosition(position, maxAgeMs)) {
+                    throw new Error("Stale location received.");
+                }
                 return {
                     latitude: position.coords.latitude,
                     longitude: position.coords.longitude,
@@ -386,10 +424,10 @@ async function startTeacherSession(buttonEl) {
 
     const payload = { subject_id: Number(subjectId) };
     try {
-        const location = await captureLocation({
+        const location = await captureLocationFast({
             preferHighAccuracy: true,
-            targetAccuracy: 40,
-            timeoutMs: 20000,
+            timeoutMs: 10000,
+            maxAgeMs: 0,
         });
         if (
             !Number.isFinite(location.latitude) ||
@@ -484,14 +522,19 @@ async function markAttendance(sessionId, buttonEl) {
         }
     };
     try {
-        const location = await captureLocation({
+        const location = await captureLocationFast({
             preferHighAccuracy: true,
-            targetAccuracy: 30,
-            timeoutMs: 20000,
+            timeoutMs: 10000,
+            maxAgeMs: 0,
         });
         payload.latitude = location.latitude;
         payload.longitude = location.longitude;
         payload.accuracy = location.accuracy;
+        console.log("[attendance] student location", {
+            latitude: payload.latitude,
+            longitude: payload.longitude,
+            accuracy: payload.accuracy,
+        });
     } catch (error) {
         showClientNotice(describeLocationOrNetworkError(error), "error");
         releaseAttendanceButton();
@@ -506,6 +549,21 @@ async function markAttendance(sessionId, buttonEl) {
         });
 
         const data = await parseApiResponse(response);
+        if (data && typeof data === "object") {
+            if (
+                Number.isFinite(data.teacher_latitude) &&
+                Number.isFinite(data.teacher_longitude)
+            ) {
+                console.log("[attendance] teacher location", {
+                    latitude: data.teacher_latitude,
+                    longitude: data.teacher_longitude,
+                    accuracy: data.teacher_accuracy,
+                });
+            }
+            if (Number.isFinite(data.distance)) {
+                console.log("[attendance] calculated distance (m)", data.distance);
+            }
+        }
         if (response.ok && data.success) {
             showClientNotice(
                 data.already_marked ? "Attendance already marked." : "Attendance marked successfully.",
@@ -526,6 +584,15 @@ async function markAttendance(sessionId, buttonEl) {
                 message && message.toLowerCase().includes("location is required")
                     ? "Please enable location to mark attendance."
                     : message;
+            if (
+                message &&
+                message.toLowerCase().includes("accuracy") &&
+                message.toLowerCase().includes("too low")
+            ) {
+                showClientNotice(message, "error");
+                releaseAttendanceButton();
+                return;
+            }
             if (
                 data &&
                 data.message &&

@@ -96,9 +96,9 @@ main {
 
 .brand {
     display: inline-flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 3px;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
     font-family: "Space Grotesk", sans-serif;
     text-decoration: none;
     color: #e9f6ff;
@@ -111,6 +111,25 @@ main {
 .brand-acronym {
     font-size: 24px;
     letter-spacing: 0.2em;
+}
+
+.brand-icon {
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+}
+
+.brand-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.brand-text {
+    display: inline-flex;
+    align-items: center;
 }
 
 .brand-full {
@@ -721,6 +740,29 @@ main.container {
 
 .footer-link:hover {
     color: #e9f6ff;
+}
+
+.footer-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 999px;
+    border: none;
+    font-size: 13px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    text-decoration: none;
+    font-weight: 600;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    box-shadow: 0 6px 16px rgba(40, 215, 192, 0.3);
+}
+
+.footer-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(40, 215, 192, 0.35);
 }
 
 .card h2,
