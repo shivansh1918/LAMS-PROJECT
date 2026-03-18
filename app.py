@@ -12,6 +12,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from models import (
     Attendance,
     AttendanceSession,
+    AttendanceRequest,
     TeacherLocationHistory,
     BlockedStudentRegistration,
     Semester,
@@ -115,6 +116,12 @@ def login_required(role=None):
                 if current_role not in allowed_roles:
                     flash("You are not authorized for this page.", "error")
                     return redirect(url_for("login"))
+                if current_role == "student":
+                    student = Student.query.filter_by(user_id=session.get("user_id")).first()
+                    if not student or not student.verified:
+                        session.clear()
+                        flash("Your student account is not verified. Please contact the admin.", "error")
+                        return redirect(url_for("login"))
             return fn(*args, **kwargs)
 
         return wrapper
@@ -238,6 +245,36 @@ def set_student_registration_open(is_open):
         db.session.add(setting)
     db.session.commit()
 
+
+def get_default_attendance_location():
+    lat_setting = SystemSetting.query.filter_by(key="attendance_center_lat").first()
+    lng_setting = SystemSetting.query.filter_by(key="attendance_center_lng").first()
+    if not lat_setting or not lng_setting:
+        return None
+    try:
+        lat = float(lat_setting.value)
+        lng = float(lng_setting.value)
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        return None
+    return {"latitude": lat, "longitude": lng}
+
+
+def set_default_attendance_location(latitude, longitude):
+    lat_setting = SystemSetting.query.filter_by(key="attendance_center_lat").first()
+    lng_setting = SystemSetting.query.filter_by(key="attendance_center_lng").first()
+    lat_value = f"{latitude:.6f}"
+    lng_value = f"{longitude:.6f}"
+    if lat_setting:
+        lat_setting.value = lat_value
+    else:
+        db.session.add(SystemSetting(key="attendance_center_lat", value=lat_value))
+    if lng_setting:
+        lng_setting.value = lng_value
+    else:
+        db.session.add(SystemSetting(key="attendance_center_lng", value=lng_value))
+    db.session.commit()
 
 def get_current_academic_session():
     setting = SystemSetting.query.filter_by(key="current_academic_session").first()
@@ -397,7 +434,6 @@ def register_student():
             existing_user.password = generate_password_hash(password)
             existing_user.email_verified = True
             existing_student.semester_id = semester_id
-            existing_student.verified = True
             db.session.commit()
             flash("Registration updated successfully. Semester changed.", "success")
         else:
@@ -420,11 +456,11 @@ def register_student():
                     roll_no=roll_no,
                     mobile_no=None,
                     semester_id=semester_id,
-                    verified=True,
+                    verified=False,
                 )
             )
             db.session.commit()
-            flash("Student registration successful.", "success")
+            flash("Student registration successful. Please wait for admin verification.", "success")
 
         # Auto-fill next login form.
         session["prefill_login_email"] = email
@@ -752,6 +788,35 @@ def teacher_dashboard():
         .all()
     )
 
+    pending_requests_rows = (
+        db.session.query(AttendanceRequest, Student, User, AttendanceSession, Subject, Semester)
+        .join(Student, Student.id == AttendanceRequest.student_id)
+        .join(User, User.id == Student.user_id)
+        .join(AttendanceSession, AttendanceSession.id == AttendanceRequest.session_id)
+        .join(Subject, Subject.id == AttendanceRequest.subject_id)
+        .join(Semester, Semester.id == AttendanceSession.semester_id)
+        .filter(
+            AttendanceSession.teacher_id == teacher.id,
+            AttendanceRequest.status == "pending",
+        )
+        .order_by(AttendanceRequest.requested_at.desc())
+        .all()
+    )
+    pending_requests = [
+        {
+            "id": req.id,
+            "student_name": user_row.name,
+            "roll_no": student.roll_no,
+            "requested_at": req.requested_at,
+            "latitude": req.latitude,
+            "longitude": req.longitude,
+            "accuracy": req.accuracy,
+            "subject": subject.name,
+            "semester": semester.name,
+        }
+        for req, student, user_row, session_row, subject, semester in pending_requests_rows
+    ]
+
     student_filter_semester = request.args.get("student_semester_id", type=int)
     allowed_semester_ids = {sem.id for sem in semesters}
     if student_filter_semester and student_filter_semester not in allowed_semester_ids:
@@ -858,6 +923,8 @@ def teacher_dashboard():
         sem_subjects = [subject for subject, s in subjects if s.id == sem.id]
         start_subject_map[str(sem.id)] = [{"id": subject.id, "name": subject.name} for subject in sem_subjects]
 
+    default_location = get_default_attendance_location()
+
     return render_template(
         "teacher_dashboard.html",
         user=user,
@@ -880,6 +947,8 @@ def teacher_dashboard():
         attendance_total_students=total_students_shown if show_status else 0,
         teacher=teacher,
         show_status=show_status,
+        pending_requests=pending_requests,
+        default_attendance_location=default_location,
     )
 
 
@@ -905,6 +974,132 @@ def verify_teacher_marked_attendance(attendance_id):
     db.session.commit()
     flash("Attendance verified successfully.", "success")
     return redirect(url_for("teacher_dashboard"))
+
+
+def _get_teacher_attendance_request(teacher_id, request_id):
+    return (
+        db.session.query(AttendanceRequest, AttendanceSession)
+        .join(AttendanceSession, AttendanceSession.id == AttendanceRequest.session_id)
+        .filter(
+            AttendanceRequest.id == request_id,
+            AttendanceSession.teacher_id == teacher_id,
+        )
+        .first()
+    )
+
+
+@app.post("/teacher/attendance-request/<int:request_id>/accept")
+@login_required(role="teacher")
+def accept_attendance_request(request_id):
+    teacher = Teacher.query.filter_by(user_id=session["user_id"]).first_or_404()
+    row = _get_teacher_attendance_request(teacher.id, request_id)
+    if not row:
+        flash("Attendance request not found for your sessions.", "error")
+        return redirect(url_for("teacher_dashboard"))
+
+    attendance_request, session_row = row
+    if attendance_request.status != "pending":
+        flash("Attendance request already processed.", "error")
+        return redirect(url_for("teacher_dashboard"))
+
+    student = db.session.get(Student, attendance_request.student_id)
+    if not student or not student.verified:
+        attendance_request.status = "rejected"
+        db.session.commit()
+        flash("Student is not verified. Request rejected.", "error")
+        return redirect(url_for("teacher_dashboard"))
+
+    existing = Attendance.query.filter_by(
+        student_id=student.id,
+        session_id=attendance_request.session_id,
+    ).first()
+    if not existing:
+        req_dt = attendance_request.requested_at or datetime.now()
+        lat = attendance_request.latitude
+        lng = attendance_request.longitude
+        if lat is None:
+            lat = getattr(session_row, "latitude", 0.0)
+        if lng is None:
+            lng = getattr(session_row, "longitude", 0.0)
+        record = Attendance(
+            student_id=student.id,
+            subject_id=attendance_request.subject_id,
+            session_id=attendance_request.session_id,
+            date=req_dt.date(),
+            time=req_dt.time().replace(microsecond=0),
+            latitude=lat,
+            longitude=lng,
+            distance_m=attendance_request.distance_m,
+            teacher_verified=True,
+            admin_verified=True,
+        )
+        db.session.add(record)
+
+    attendance_request.status = "accepted"
+    db.session.commit()
+    flash("Attendance request accepted.", "success")
+    return redirect(url_for("teacher_dashboard"))
+
+
+@app.post("/teacher/attendance-request/<int:request_id>/reject")
+@login_required(role="teacher")
+def reject_attendance_request(request_id):
+    teacher = Teacher.query.filter_by(user_id=session["user_id"]).first_or_404()
+    row = _get_teacher_attendance_request(teacher.id, request_id)
+    if not row:
+        flash("Attendance request not found for your sessions.", "error")
+        return redirect(url_for("teacher_dashboard"))
+
+    attendance_request, _session_row = row
+    if attendance_request.status != "pending":
+        flash("Attendance request already processed.", "error")
+        return redirect(url_for("teacher_dashboard"))
+
+    attendance_request.status = "rejected"
+    db.session.commit()
+    flash("Attendance request rejected.", "success")
+    return redirect(url_for("teacher_dashboard"))
+
+
+@app.get("/api/teacher/attendance-requests")
+@login_required(role="teacher")
+def api_teacher_attendance_requests():
+    teacher = Teacher.query.filter_by(user_id=session["user_id"]).first_or_404()
+    rows = (
+        db.session.query(AttendanceRequest, Student, User, AttendanceSession, Subject, Semester)
+        .join(Student, Student.id == AttendanceRequest.student_id)
+        .join(User, User.id == Student.user_id)
+        .join(AttendanceSession, AttendanceSession.id == AttendanceRequest.session_id)
+        .join(Subject, Subject.id == AttendanceRequest.subject_id)
+        .join(Semester, Semester.id == AttendanceSession.semester_id)
+        .filter(
+            AttendanceSession.teacher_id == teacher.id,
+            AttendanceRequest.status == "pending",
+        )
+        .order_by(AttendanceRequest.requested_at.desc())
+        .all()
+    )
+    payload = [
+        {
+            "id": req.id,
+            "student_name": user_row.name,
+            "roll_no": student.roll_no,
+            "requested_at": req.requested_at.strftime("%d/%m/%Y %I:%M %p")
+            if req.requested_at
+            else "",
+            "latitude": req.latitude,
+            "longitude": req.longitude,
+            "accuracy": req.accuracy,
+            "subject": subject.name,
+            "semester": semester.name,
+        }
+        for req, student, user_row, session_row, subject, semester in rows
+    ]
+    response = jsonify({"success": True, "requests": payload})
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.route("/admin/dashboard")
@@ -1007,6 +1202,19 @@ def admin_dashboard():
         .order_by(AttendanceSession.start_time.desc())
         .all()
     )
+    teacher_sessions_map = {}
+    for sess, subject, semester, teacher, user in teacher_session_records:
+        entry = teacher_sessions_map.setdefault(
+            teacher.id,
+            {"teacher": teacher, "user": user, "sessions": []},
+        )
+        entry["sessions"].append(
+            {"session": sess, "subject": subject, "semester": semester}
+        )
+    teacher_sessions = sorted(
+        teacher_sessions_map.values(),
+        key=lambda item: (item["user"].name or "").strip().lower(),
+    )
 
     semester_attendance_summary = (
         db.session.query(Semester.name, func.count(Attendance.id))
@@ -1044,6 +1252,8 @@ def admin_dashboard():
                 "total_sessions": total_sessions,
                 "attended_sessions": present,
                 "percentage": percentage,
+                "verified": bool(stu.verified),
+                "student_id": stu.id,
             }
 
     percentage_report = []
@@ -1079,6 +1289,8 @@ def admin_dashboard():
         count = sum(1 for item in percentage_report if item["semester_id"] == sem.id)
         report_semester_wise_counts.append((sem, count))
 
+    default_location = get_default_attendance_location()
+
     teacher_subject_mappings = (
         db.session.query(TeacherSubjectMap, Teacher, User, Subject, Semester)
         .join(Teacher, Teacher.id == TeacherSubjectMap.teacher_id)
@@ -1111,6 +1323,7 @@ def admin_dashboard():
         teachers=teachers,
         attendance_records=attendance_records,
         teacher_session_records=teacher_session_records,
+        teacher_sessions=teacher_sessions,
         semester_attendance_summary=semester_attendance_summary,
         student_detail=student_detail,
         student_detail_summary=student_detail_summary,
@@ -1130,6 +1343,7 @@ def admin_dashboard():
         teacher_subject_mappings=teacher_subject_mappings,
         students_semester_wise=students_semester_wise,
         report_semester_wise_counts=report_semester_wise_counts,
+        default_attendance_location=default_location,
         admin_students_roster=admin_students_roster,
         attendance_date_iso=attendance_date_selected.isoformat() if attendance_date_selected else "",
         attendance_date_display=attendance_date_selected.strftime("%d/%m/%Y") if attendance_date_selected else "",
@@ -1321,6 +1535,32 @@ def admin_add_student():
     return redirect(url_for("admin_dashboard"))
 
 
+@app.post("/admin/student/<int:student_id>/verify")
+@login_required(role="admin")
+def admin_verify_student(student_id):
+    student = Student.query.get_or_404(student_id)
+    student.verified = True
+    user = db.session.get(User, student.user_id)
+    if user:
+        user.email_verified = True
+    db.session.commit()
+    flash("Student verified successfully.", "success")
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.post("/admin/student/<int:student_id>/unverify")
+@login_required(role="admin")
+def admin_unverify_student(student_id):
+    student = Student.query.get_or_404(student_id)
+    student.verified = False
+    user = db.session.get(User, student.user_id)
+    if user:
+        user.email_verified = False
+    db.session.commit()
+    flash("Student verification removed.", "success")
+    return redirect(url_for("admin_dashboard"))
+
+
 @app.post("/admin/teacher/add")
 @login_required(role="admin")
 def admin_add_teacher():
@@ -1382,6 +1622,7 @@ def admin_add_teacher():
 def _delete_student_record(student):
     user = db.session.get(User, student.user_id)
 
+    AttendanceRequest.query.filter_by(student_id=student.id).delete(synchronize_session=False)
     Attendance.query.filter_by(student_id=student.id).delete(synchronize_session=False)
     db.session.delete(student)
     if user:
@@ -1407,6 +1648,9 @@ def _delete_teacher_record(teacher):
             _delete_student_record(student)
 
     teacher_session_ids = db.session.query(AttendanceSession.id).filter_by(teacher_id=teacher.id)
+    AttendanceRequest.query.filter(AttendanceRequest.session_id.in_(teacher_session_ids)).delete(
+        synchronize_session=False
+    )
     Attendance.query.filter(Attendance.session_id.in_(teacher_session_ids)).delete(
         synchronize_session=False
     )
@@ -1475,6 +1719,50 @@ def admin_delete_teacher(teacher_id):
     db.session.commit()
 
     flash("Teacher data deleted successfully.", "success")
+    return redirect(url_for("admin_dashboard"))
+
+
+def _delete_sessions_by_ids(session_ids):
+    if not session_ids:
+        return
+    AttendanceRequest.query.filter(AttendanceRequest.session_id.in_(session_ids)).delete(
+        synchronize_session=False
+    )
+    Attendance.query.filter(Attendance.session_id.in_(session_ids)).delete(
+        synchronize_session=False
+    )
+    TeacherLocationHistory.query.filter(TeacherLocationHistory.session_id.in_(session_ids)).delete(
+        synchronize_session=False
+    )
+    AttendanceSession.query.filter(AttendanceSession.id.in_(session_ids)).delete(
+        synchronize_session=False
+    )
+
+
+@app.post("/admin/session/<int:session_id>/delete")
+@login_required(role="admin")
+def admin_delete_session(session_id):
+    session_row = AttendanceSession.query.get_or_404(session_id)
+    _delete_sessions_by_ids([session_row.id])
+    db.session.commit()
+    if request.headers.get("X-Requested-With") == "fetch":
+        return jsonify({"success": True, "deleted": 1})
+    flash("Session deleted successfully.", "success")
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.post("/admin/teacher/<int:teacher_id>/sessions/delete")
+@login_required(role="admin")
+def admin_delete_teacher_sessions(teacher_id):
+    teacher = Teacher.query.get_or_404(teacher_id)
+    session_ids = [
+        row.id for row in AttendanceSession.query.filter_by(teacher_id=teacher.id).all()
+    ]
+    _delete_sessions_by_ids(session_ids)
+    db.session.commit()
+    if request.headers.get("X-Requested-With") == "fetch":
+        return jsonify({"success": True, "deleted": len(session_ids)})
+    flash("All sessions for this teacher deleted successfully.", "success")
     return redirect(url_for("admin_dashboard"))
 
 
@@ -1566,6 +1854,10 @@ def delete_subject(subject_id):
     subject = Subject.query.get_or_404(subject_id)
 
     subject_session_ids = db.session.query(AttendanceSession.id).filter_by(subject_id=subject.id)
+    AttendanceRequest.query.filter(AttendanceRequest.session_id.in_(subject_session_ids)).delete(
+        synchronize_session=False
+    )
+    AttendanceRequest.query.filter_by(subject_id=subject.id).delete(synchronize_session=False)
     Attendance.query.filter(Attendance.session_id.in_(subject_session_ids)).delete(
         synchronize_session=False
     )
@@ -1588,6 +1880,31 @@ def toggle_student_registration():
     flash(f"Student registration is now {status}.", "success")
     return redirect(url_for("admin_dashboard"))
 
+
+@app.post("/admin/attendance/location")
+@login_required(role="admin")
+def admin_set_attendance_location():
+    latitude = request.form.get("latitude", "").strip()
+    longitude = request.form.get("longitude", "").strip()
+    if latitude == "" or longitude == "":
+        flash("Latitude and longitude are required.", "error")
+        return redirect(url_for("admin_dashboard"))
+    try:
+        latitude = float(latitude)
+        longitude = float(longitude)
+    except (TypeError, ValueError):
+        flash("Invalid latitude/longitude values.", "error")
+        return redirect(url_for("admin_dashboard"))
+    if not (math.isfinite(latitude) and math.isfinite(longitude)):
+        flash("Invalid latitude/longitude values.", "error")
+        return redirect(url_for("admin_dashboard"))
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        flash("Latitude/longitude out of range.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    set_default_attendance_location(latitude, longitude)
+    flash("Default attendance location saved.", "success")
+    return redirect(url_for("admin_dashboard"))
 
 
 
@@ -1686,12 +2003,14 @@ def api_admin_student_details():
         {
             "success": True,
             "summary": {
+                "student_id": stu.id,
                 "roll_no": stu.roll_no,
                 "name": usr.name,
                 "semester": sem.name,
                 "total_sessions": total_sessions,
                 "percentage": percentage,
                 "attended_sessions": present,
+                "verified": bool(stu.verified),
             },
         }
     )
@@ -1707,6 +2026,7 @@ def start_session():
     accuracy = data.get("accuracy")
     device_id = (data.get("device_id") or "").strip()
     test_mode = bool(data.get("test_mode"))
+    manual_location = bool(data.get("manual_location"))
 
     if subject_id in (None, ""):
         return jsonify({"success": False, "message": "Subject is required."}), 400
@@ -1746,7 +2066,9 @@ def start_session():
     if accuracy < 0:
         accuracy = 0.0
 
-    if not test_mode and (not accuracy or accuracy <= 0 or accuracy > GPS_ACCURACY_ACCEPT_MAX_M):
+    if not manual_location and not test_mode and (
+        not accuracy or accuracy <= 0 or accuracy > GPS_ACCURACY_ACCEPT_MAX_M
+    ):
         return (
             jsonify(
                 {
@@ -1793,7 +2115,12 @@ def start_session():
         longitude=longitude,
         location_accuracy=accuracy,
         location_enforced=not test_mode,
-        gps_locked=bool(test_mode or (accuracy and accuracy > 0 and accuracy <= GPS_ACCURACY_ACCEPT_MAX_M)),
+        location_source="manual" if manual_location else "gps",
+        gps_locked=bool(
+            manual_location
+            or test_mode
+            or (accuracy and accuracy > 0 and accuracy <= GPS_ACCURACY_ACCEPT_MAX_M)
+        ),
         is_test_mode=bool(test_mode),
         device_id=device_id,
         device_fingerprint=get_device_fingerprint(),
@@ -2022,7 +2349,9 @@ def api_active_session():
     if not (-90 <= session_lat <= 90 and -180 <= session_lng <= 180):
         return jsonify({"active": False, "message": "Session location unavailable."}), 400
 
-    if bool(getattr(active_session, "location_enforced", True)):
+    if bool(getattr(active_session, "location_enforced", True)) and (
+        (getattr(active_session, "location_source", "") or "").lower() != "manual"
+    ):
         last_update = getattr(active_session, "last_location_update", None)
         if not last_update:
             return jsonify({"active": False, "message": "Teacher location is stale. Ask the teacher to retry."}), 400
@@ -2145,6 +2474,7 @@ def mark_attendance():
     # If teacher's GPS hasn't locked yet, do not attempt strict 50m validation (it will cause false negatives).
     if (
         bool(getattr(active_session, "location_enforced", True))
+        and (getattr(active_session, "location_source", "") or "").lower() != "manual"
         and not bool(getattr(active_session, "is_test_mode", False))
         and not bool(getattr(active_session, "gps_locked", False))
         and not test_mode
@@ -2331,8 +2661,9 @@ def mark_attendance():
         return jsonify(
         {
             "success": True,
-            "message": "Attendance already marked for this active session.",
+            "message": "Attendance already approved for this session.",
             "already_marked": True,
+            "status": "accepted",
             "distance": rounded_distance,
             "effective_radius": effective_radius,
             "base_radius": base_radius,
@@ -2346,26 +2677,57 @@ def mark_attendance():
         }
         ), 200
 
-    # Auto-verified because distance check is enforced at marking time.
-    record = Attendance(
+    existing_request = AttendanceRequest.query.filter_by(
+        student_id=student.id,
+        session_id=active_session.id,
+    ).first()
+    if existing_request:
+        if existing_request.status == "pending":
+            return jsonify(
+                {
+                    "success": True,
+                    "message": "Attendance request already pending approval.",
+                    "status": "pending",
+                    "distance": rounded_distance,
+                }
+            ), 200
+        if existing_request.status == "accepted":
+            return jsonify(
+                {
+                    "success": True,
+                    "message": "Attendance already approved for this session.",
+                    "already_marked": True,
+                    "status": "accepted",
+                }
+            ), 200
+        return jsonify(
+            {
+                "success": False,
+                "message": "Your attendance request was rejected for this session.",
+                "status": "rejected",
+            }
+        ), 403
+
+    attendance_request = AttendanceRequest(
         student_id=student.id,
         subject_id=active_session.subject_id,
         session_id=active_session.id,
-        date=date.today(),
-        time=datetime.now().time().replace(microsecond=0),
+        status="pending",
+        requested_at=datetime.now(),
         latitude=latitude,
         longitude=longitude,
-        teacher_verified=True,
-        admin_verified=True,
+        accuracy=accuracy,
+        device_id=device_id,
+        distance_m=rounded_distance,
     )
-    db.session.add(record)
+    db.session.add(attendance_request)
     db.session.commit()
 
-    message = f"Attendance marked successfully. Distance: {rounded_distance}m."
     return jsonify(
         {
             "success": True,
-            "message": message,
+            "message": "Attendance request sent to teacher for approval.",
+            "status": "pending",
             "distance": rounded_distance,
             "effective_radius": effective_radius,
             "base_radius": base_radius,

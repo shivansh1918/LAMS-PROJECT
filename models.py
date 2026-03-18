@@ -101,6 +101,7 @@ class AttendanceSession(db.Model):
     longitude = db.Column(db.Float, nullable=False)
     location_accuracy = db.Column(db.Float, nullable=True)
     location_enforced = db.Column(db.Boolean, default=True, nullable=False)
+    location_source = db.Column(db.String(20), nullable=True)
     attendance_verified = db.Column(db.Boolean, default=False, nullable=False)
     device_id = db.Column(db.String(80), nullable=True)
     device_fingerprint = db.Column(db.String(255), nullable=True)
@@ -133,8 +134,28 @@ class Attendance(db.Model):
     time = db.Column(db.Time, nullable=False)
     latitude = db.Column(db.Float, nullable=False)
     longitude = db.Column(db.Float, nullable=False)
+    distance_m = db.Column(db.Float, nullable=True)
     teacher_verified = db.Column(db.Boolean, default=False, nullable=False)
     admin_verified = db.Column(db.Boolean, default=False, nullable=False)
+
+
+class AttendanceRequest(db.Model):
+    __tablename__ = "attendance_requests"
+    __table_args__ = (
+        UniqueConstraint("student_id", "session_id", name="uq_attendance_request_student_session"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, db.ForeignKey("students.id"), nullable=False)
+    subject_id = db.Column(db.Integer, db.ForeignKey("subjects.id"), nullable=False)
+    session_id = db.Column(db.Integer, db.ForeignKey("attendance_sessions.id"), nullable=False)
+    status = db.Column(db.String(20), default="pending", nullable=False)
+    requested_at = db.Column(db.DateTime, server_default=db.func.current_timestamp(), nullable=False)
+    latitude = db.Column(db.Float, nullable=True)
+    longitude = db.Column(db.Float, nullable=True)
+    accuracy = db.Column(db.Float, nullable=True)
+    device_id = db.Column(db.String(80), nullable=True)
+    distance_m = db.Column(db.Float, nullable=True)
 
 
 def _add_column_if_missing(table_name, column_name, ddl):
@@ -182,6 +203,11 @@ def init_db(app):
         )
         _add_column_if_missing(
             "attendance_sessions",
+            "location_source",
+            "location_source VARCHAR(20)",
+        )
+        _add_column_if_missing(
+            "attendance_sessions",
             "device_id",
             "device_id VARCHAR(80)",
         )
@@ -214,6 +240,16 @@ def init_db(app):
             "attendance",
             "teacher_verified",
             "teacher_verified BOOLEAN NOT NULL DEFAULT 0",
+        )
+        _add_column_if_missing(
+            "attendance",
+            "distance_m",
+            "distance_m FLOAT",
+        )
+        _add_column_if_missing(
+            "attendance_requests",
+            "distance_m",
+            "distance_m FLOAT",
         )
         _add_column_if_missing(
             "users",

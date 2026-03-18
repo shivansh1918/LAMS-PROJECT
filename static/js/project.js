@@ -198,6 +198,45 @@ function initAjaxActionForms() {
                     }
                     return;
                 }
+                if (toggleKind === "student-verify") {
+                    const row = form.closest("tr");
+                    const verifiedCell = row ? row.querySelector(".js-verified-cell") : null;
+                    if (verifiedCell) {
+                        verifiedCell.innerHTML = "<span class='badge badge-success'>Verified</span>";
+                    }
+                    form.outerHTML = "<button type='button' class='btn-secondary' disabled>Verified</button>";
+                    return;
+                }
+                if (toggleKind === "teacher-session-delete" || toggleKind === "teacher-session-delete-all") {
+                    const teacherId = form.dataset.teacherId;
+                    const countEl = teacherId
+                        ? document.querySelector(`[data-teacher-session-count="${teacherId}"]`)
+                        : null;
+                    let currentCount = countEl ? Number(countEl.textContent || "0") : 0;
+                    if (!Number.isFinite(currentCount)) currentCount = 0;
+
+                    if (toggleKind === "teacher-session-delete") {
+                        const row = form.closest("tr");
+                        if (row) row.remove();
+                        currentCount = Math.max(0, currentCount - 1);
+                    } else {
+                        const body = teacherId
+                            ? document.querySelector(`[data-teacher-session-body="${teacherId}"]`)
+                            : null;
+                        if (body) {
+                            body.innerHTML = "<tr class='js-no-sessions'><td colspan='6'>No sessions found.</td></tr>";
+                        }
+                        currentCount = 0;
+                    }
+                    if (countEl) countEl.textContent = String(currentCount);
+                    const body = teacherId
+                        ? document.querySelector(`[data-teacher-session-body="${teacherId}"]`)
+                        : null;
+                    if (body && !body.querySelector("tr")) {
+                        body.innerHTML = "<tr class='js-no-sessions'><td colspan='6'>No sessions found.</td></tr>";
+                    }
+                    return;
+                }
 
                 alert(form.dataset.ajaxSuccessMessage || "Action completed.");
             } catch (err) {
@@ -534,6 +573,24 @@ async function fetchWithRetry(url, options, retries = 2) {
     throw lastError || new Error("Network error");
 }
 
+const MANUAL_LOCATION_STORAGE_KEY = "attendanceManualLocation";
+
+function getManualSessionLocation() {
+    try {
+        const raw = localStorage.getItem(MANUAL_LOCATION_STORAGE_KEY);
+        if (!raw) return null;
+        const data = JSON.parse(raw);
+        const latitude = Number(data.latitude);
+        const longitude = Number(data.longitude);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+        if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
+        return { latitude, longitude };
+    } catch (e) {
+        return null;
+    }
+}
+
+
 async function startTeacherSession(buttonEl) {
     const subjectSelect = document.getElementById("subject_id");
     const subjectId = subjectSelect ? subjectSelect.value : "";
@@ -565,63 +622,36 @@ async function startTeacherSession(buttonEl) {
     }
 
     const payload = { subject_id: Number(subjectId), device_id: getOrCreateDeviceId() };
-    // Mobile: require an accurate GPS fix so geofence checks do not produce false negatives.
-    // Desktop/laptop: start in test mode.
-    const isMobile = isLikelyMobileDevice();
-    let location = null;
-    if (isMobile && (!navigator.geolocation || !window.isSecureContext)) {
-        showClientNotice(
-            "Live location is unavailable. Open the app on HTTPS or localhost, then enable GPS permission.",
-            "error",
-            4200
-        );
+    let manualLocation = getManualSessionLocation();
+    if (!manualLocation) {
+        const latInput = document.getElementById("manual_latitude");
+        const lngInput = document.getElementById("manual_longitude");
+        const latVal = latInput ? Number((latInput.value || "").trim()) : NaN;
+        const lngVal = lngInput ? Number((lngInput.value || "").trim()) : NaN;
+        if (
+            Number.isFinite(latVal) &&
+            Number.isFinite(lngVal) &&
+            latVal >= -90 &&
+            latVal <= 90 &&
+            lngVal >= -180 &&
+            lngVal <= 180
+        ) {
+            manualLocation = { latitude: latVal, longitude: lngVal };
+        }
+    }
+    if (!manualLocation) {
+        showClientNotice("Please set a valid session location first.", "error");
         reenableStartButton();
         return;
     }
-    if (navigator.geolocation && window.isSecureContext && isMobile) {
-        location = await withTimeout(
-            getStrictGpsLocation({
-                retries: 3,
-                timeoutMs: 10000,
-                accuracyMax: GPS_ACCURACY_THRESHOLD_M,
-            }).catch(() => null),
-            10500,
-            null
-        );
-        if (!location) {
-            showClientNotice(
-                `Could not get a good GPS fix (need <= ${GPS_ACCURACY_THRESHOLD_M}m). Turn on Precise location + GPS + Wi‑Fi, wait 5–10 seconds, then retry near a window/outdoor.`,
-                "error",
-                4200
-            );
-            reenableStartButton();
-            return;
-        }
-    }
-    if (location) {
-        if (
-            !Number.isFinite(location.latitude) ||
-            !Number.isFinite(location.longitude) ||
-            location.latitude < -90 ||
-            location.latitude > 90 ||
-            location.longitude < -180 ||
-            location.longitude > 180
-        ) {
-            payload.test_mode = true;
-            payload.latitude = TEST_MODE_DEFAULT_COORDS.latitude;
-            payload.longitude = TEST_MODE_DEFAULT_COORDS.longitude;
-            payload.accuracy = 0;
-        } else {
-            payload.latitude = location.latitude;
-            payload.longitude = location.longitude;
-            payload.accuracy = location.accuracy;
-        }
-    } else {
-        payload.test_mode = true;
-        payload.latitude = TEST_MODE_DEFAULT_COORDS.latitude;
-        payload.longitude = TEST_MODE_DEFAULT_COORDS.longitude;
-        payload.accuracy = 0;
-    }
+    payload.latitude = manualLocation.latitude;
+    payload.longitude = manualLocation.longitude;
+    payload.accuracy = 0;
+    payload.manual_location = true;
+    console.log("[attendance] manual session location", {
+        latitude: payload.latitude,
+        longitude: payload.longitude,
+    });
     console.log("[attendance] teacher location", {
         latitude: payload.latitude,
         longitude: payload.longitude,
@@ -678,7 +708,6 @@ async function startTeacherSession(buttonEl) {
                     if (tableWrap) tableWrap.style.display = "";
                     if (emptyState) emptyState.style.display = "none";
                 }
-                startTeacherLocationUpdates(data.session_id);
             }
             return;
         }
@@ -705,42 +734,6 @@ async function stopTeacherSession(sessionId) {
     }
 }
 
-const teacherLocationIntervals = new Map();
-
-function startTeacherLocationUpdates(sessionId) {
-    const numericId = Number(sessionId);
-    if (!Number.isFinite(numericId) || numericId <= 0) return;
-    if (teacherLocationIntervals.has(numericId)) return;
-
-    const updateOnce = async () => {
-        try {
-            const location = await getStrictGpsLocation({
-                retries: 2,
-                timeoutMs: 10000,
-                accuracyMax: GPS_ACCURACY_THRESHOLD_M,
-            });
-            const payload = {
-                session_id: numericId,
-                latitude: location.latitude,
-                longitude: location.longitude,
-                accuracy: location.accuracy,
-                device_id: getOrCreateDeviceId(),
-            };
-            await fetchWithRetry("/api/teacher/session/update-location", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-            });
-        } catch (error) {
-            console.warn("[attendance] teacher location update failed", error);
-        }
-    };
-
-    updateOnce();
-    const intervalId = window.setInterval(updateOnce, 4000);
-    teacherLocationIntervals.set(numericId, intervalId);
-}
-
 function setMarkedAttendanceButton(buttonEl) {
     if (!buttonEl) return;
     buttonEl.disabled = true;
@@ -748,6 +741,16 @@ function setMarkedAttendanceButton(buttonEl) {
     buttonEl.textContent = "Marked";
     buttonEl.classList.remove("btn-secondary");
     buttonEl.classList.add("btn-marked");
+    buttonEl.removeAttribute("onclick");
+}
+
+function setPendingAttendanceButton(buttonEl) {
+    if (!buttonEl) return;
+    buttonEl.disabled = true;
+    delete buttonEl.dataset.attendancePending;
+    buttonEl.textContent = "Pending Approval";
+    buttonEl.classList.remove("btn-marked");
+    buttonEl.classList.add("btn-secondary");
     buttonEl.removeAttribute("onclick");
 }
 
@@ -922,6 +925,14 @@ async function markAttendance(sessionId, buttonEl) {
             }
         }
         if (response.ok && data.success) {
+            if (data.status === "pending") {
+                showClientNotice(data.message || "Attendance request sent for approval.", "success");
+                setPendingAttendanceButton(buttonEl);
+                const sessionButtons = document.querySelectorAll(`[data-session-id="${sessionId}"]`);
+                sessionButtons.forEach((btn) => setPendingAttendanceButton(btn));
+                releaseAttendanceButton(true);
+                return;
+            }
             showClientNotice(
                 data.already_marked ? "Attendance already marked." : "Attendance marked successfully.",
                 "success"
@@ -968,19 +979,7 @@ async function markAttendance(sessionId, buttonEl) {
     }
 }
 
-function initTeacherLiveSessionUpdates() {
-    const rows = document.querySelectorAll("[data-teacher-session-id]");
-    if (!rows.length) return;
-    rows.forEach((row) => {
-        const sessionId = Number(row.dataset.teacherSessionId || "");
-        if (Number.isFinite(sessionId) && sessionId > 0) {
-            startTeacherLocationUpdates(sessionId);
-        }
-    });
-}
-
 document.addEventListener("DOMContentLoaded", () => {
     initGmailUsernameFields();
     initAjaxActionForms();
-    initTeacherLiveSessionUpdates();
 });
