@@ -48,15 +48,10 @@ ALLOWED_SEMESTER_NAMES = [f"Semester {i}" for i in range(1, 7)]
 ALLOWED_ROLES = {"admin", "teacher", "student"}
 
 # Attendance geofence/GPS tuning
-# - Allowed radius: 50m (strict requirement)
-# - Buffer: allow up to 70m to reduce false negatives from GPS drift
-# - Accuracy threshold: accept fixes within <= 100m (GPS can vary)
-ATTENDANCE_ALLOWED_RADIUS_M = 50.0
-ATTENDANCE_RADIUS_BUFFER_M = 20.0
-GPS_ACCURACY_ACCEPT_MAX_M = 100.0
-# Additional slack based on device-reported GPS accuracy (to reduce false “out of range” indoors).
-# Capped to avoid over-expanding the geofence.
-ATTENDANCE_ACCURACY_TOLERANCE_CAP_M = 35.0
+# - Allowed radius: 100m (strict requirement)
+# - Accuracy threshold: accept fixes within <= 300m (GPS can vary)
+ATTENDANCE_ALLOWED_RADIUS_M = 100.0
+GPS_ACCURACY_ACCEPT_MAX_M = 300.0
 
 
 @app.context_processor
@@ -2021,12 +2016,21 @@ def api_admin_student_details():
 def start_session():
     data = request.get_json(silent=True) or {}
     subject_id = data.get("subject_id")
-    latitude = data.get("latitude")
-    longitude = data.get("longitude")
-    accuracy = data.get("accuracy")
     device_id = (data.get("device_id") or "").strip()
-    test_mode = bool(data.get("test_mode"))
-    manual_location = bool(data.get("manual_location"))
+    # Teacher cannot override admin-set attendance location.
+    default_location = get_default_attendance_location()
+    if not default_location:
+        return jsonify(
+            {
+                "success": False,
+                "message": "Admin has not set the attendance location yet.",
+            }
+        ), 400
+    latitude = default_location["latitude"]
+    longitude = default_location["longitude"]
+    accuracy = 0.0
+    manual_location = True
+    test_mode = False
 
     if subject_id in (None, ""):
         return jsonify({"success": False, "message": "Subject is required."}), 400
@@ -2035,36 +2039,11 @@ def start_session():
     except (TypeError, ValueError):
         return jsonify({"success": False, "message": "Invalid subject value."}), 400
 
-    has_location = latitude not in (None, "") and longitude not in (None, "")
-    if not has_location and test_mode:
-        latitude = 28.6139
-        longitude = 77.209
-        accuracy = 0.0
-        has_location = True
-    if not has_location:
-        return jsonify(
-            {
-                "success": False,
-                "message": "Location is required. Please allow GPS permission and try again.",
-            }
-        ), 400
-    if has_location:
-        try:
-            latitude = float(latitude)
-            longitude = float(longitude)
-        except (TypeError, ValueError):
-            return jsonify({"success": False, "message": "Invalid location values."}), 400
-        # Strict server-side GPS validation: session cannot start with invalid coordinates.
-        if not (math.isfinite(latitude) and math.isfinite(longitude)):
-            return jsonify({"success": False, "message": "Invalid location values."}), 400
-        if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
-            return jsonify({"success": False, "message": "Invalid location coordinates."}), 400
-    try:
-        accuracy = float(accuracy) if accuracy not in (None, "") else 0.0
-    except (TypeError, ValueError):
-        accuracy = 0.0
-    if accuracy < 0:
-        accuracy = 0.0
+    # Strict server-side validation of admin-set coordinates.
+    if not (math.isfinite(latitude) and math.isfinite(longitude)):
+        return jsonify({"success": False, "message": "Invalid attendance location."}), 400
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        return jsonify({"success": False, "message": "Invalid attendance location."}), 400
 
     if not manual_location and not test_mode and (
         not accuracy or accuracy <= 0 or accuracy > GPS_ACCURACY_ACCEPT_MAX_M
@@ -2448,7 +2427,7 @@ def mark_attendance():
     device_id = (data.get("device_id") or "").strip()
     teacher_latitude_client = data.get("teacher_latitude")
     teacher_longitude_client = data.get("teacher_longitude")
-    test_mode = bool(data.get("test_mode"))
+    test_mode = False
 
     if session_id in (None, ""):
         return jsonify({"success": False, "message": "Session is required."}), 400
@@ -2475,9 +2454,7 @@ def mark_attendance():
     if (
         bool(getattr(active_session, "location_enforced", True))
         and (getattr(active_session, "location_source", "") or "").lower() != "manual"
-        and not bool(getattr(active_session, "is_test_mode", False))
         and not bool(getattr(active_session, "gps_locked", False))
-        and not test_mode
     ):
         return (
             jsonify(
@@ -2489,23 +2466,12 @@ def mark_attendance():
             ),
             409,
         )
-    if bool(getattr(active_session, "location_enforced", True)) and not test_mode:
-        if active_session.device_id and device_id == active_session.device_id:
-            return jsonify(
-                {
-                    "success": False,
-                    "message": "Attendance cannot be marked from the same device as the teacher.",
-                }
-            ), 403
-        if active_session.device_fingerprint and active_session.device_fingerprint == get_device_fingerprint():
-            return jsonify(
-                {
-                    "success": False,
-                    "message": "Attendance cannot be marked from the same device as the teacher.",
-                }
-            ), 403
+    if bool(getattr(active_session, "location_enforced", True)):
+        # Allow same-device attendance on mobile to avoid false blocks in real-world usage.
+        # Device-based blocking can be reintroduced later with a dedicated admin setting.
+        pass
 
-    # Load teacher coordinates early to support desktop test mode fallback.
+    # Load teacher coordinates early for distance validation.
     try:
         session_latitude = float(active_session.latitude)
         session_longitude = float(active_session.longitude)
@@ -2540,21 +2506,15 @@ def mark_attendance():
             400,
         )
 
-    # Student GPS is mandatory in production. For desktop/laptop testing mode, allow mock coordinates.
+    # Student GPS is mandatory for attendance.
     has_location = latitude not in (None, "") and longitude not in (None, "")
     if not has_location:
-        if test_mode or not bool(getattr(active_session, "location_enforced", True)):
-            latitude = session_latitude + 0.0003
-            longitude = session_longitude
-            accuracy = 0.0
-            has_location = True
-        else:
-            return jsonify(
-                {
-                    "success": False,
-                    "message": "Location is required. Please turn on GPS and allow location permission.",
-                }
-            ), 400
+        return jsonify(
+            {
+                "success": False,
+                "message": "Location is required. Please turn on GPS and allow location permission.",
+            }
+        ), 400
     try:
         latitude = float(latitude)
         longitude = float(longitude)
@@ -2572,8 +2532,6 @@ def mark_attendance():
         accuracy = 0.0
     if (
         bool(getattr(active_session, "location_enforced", True))
-        and not bool(getattr(active_session, "is_test_mode", False))
-        and not test_mode
         and (not accuracy or accuracy <= 0 or accuracy > GPS_ACCURACY_ACCEPT_MAX_M)
     ):
         return (
@@ -2588,7 +2546,7 @@ def mark_attendance():
         )
 
 
-    # Strict 50-meter geofence check with GPS accuracy tolerance.
+    # Strict geofence check (no tolerance): do not allow attendance beyond 100m.
     distance = haversine_meters(
         latitude,
         longitude,
@@ -2601,13 +2559,9 @@ def mark_attendance():
     allowed_radius = ATTENDANCE_ALLOWED_RADIUS_M
     teacher_accuracy = max(float(getattr(active_session, "location_accuracy", 0.0) or 0.0), 0.0)
     student_accuracy = max(float(accuracy or 0.0), 0.0)
-    # Base buffer reduces false negatives from GPS drift; add a capped accuracy-based tolerance
-    # because two devices can report positions that differ by >70m even when people are nearby.
-    base_radius = allowed_radius + ATTENDANCE_RADIUS_BUFFER_M
-    accuracy_tolerance = min(teacher_accuracy, ATTENDANCE_ACCURACY_TOLERANCE_CAP_M) + min(
-        student_accuracy, ATTENDANCE_ACCURACY_TOLERANCE_CAP_M
-    )
-    effective_radius = base_radius + accuracy_tolerance
+    accuracy_tolerance = 0.0
+    base_radius = allowed_radius
+    effective_radius = allowed_radius
     rounded_distance = round(distance, 2)
     app.logger.info(
         "Attendance distance check | student=(%s,%s acc=%.2f) teacher=(%s,%s acc=%.2f) distance_m=%.2f base_radius=%.2f tol=%.2f eff_radius=%.2f",
@@ -2641,7 +2595,7 @@ def mark_attendance():
             return jsonify(
                 {
                     "success": False,
-                    "message": "You are outside the allowed attendance range.",
+                    "message": "You are outside the allowed attendance range. Move closer and try again.",
                     "distance": rounded_distance,
                     "allowed_radius": allowed_radius,
                     "base_radius": base_radius,
@@ -2682,15 +2636,6 @@ def mark_attendance():
         session_id=active_session.id,
     ).first()
     if existing_request:
-        if existing_request.status == "pending":
-            return jsonify(
-                {
-                    "success": True,
-                    "message": "Attendance request already pending approval.",
-                    "status": "pending",
-                    "distance": rounded_distance,
-                }
-            ), 200
         if existing_request.status == "accepted":
             return jsonify(
                 {
@@ -2700,13 +2645,23 @@ def mark_attendance():
                     "status": "accepted",
                 }
             ), 200
+        # If previously pending or rejected, refresh the request with latest in-range location.
+        existing_request.status = "pending"
+        existing_request.requested_at = datetime.now()
+        existing_request.latitude = latitude
+        existing_request.longitude = longitude
+        existing_request.accuracy = accuracy
+        existing_request.device_id = device_id
+        existing_request.distance_m = rounded_distance
+        db.session.commit()
         return jsonify(
             {
-                "success": False,
-                "message": "Your attendance request was rejected for this session.",
-                "status": "rejected",
+                "success": True,
+                "message": "Attendance request sent to teacher for approval.",
+                "status": "pending",
+                "distance": rounded_distance,
             }
-        ), 403
+        ), 200
 
     attendance_request = AttendanceRequest(
         student_id=student.id,

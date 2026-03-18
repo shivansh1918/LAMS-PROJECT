@@ -35,21 +35,19 @@ function getOrCreateDeviceId() {
 function gpsFailureMessage(error) {
     if (error && typeof error.code === "number") {
         if (error.code === 1 || error.code === 2 || error.code === 3) {
-            return "Please enable GPS and try again.";
+            return "Please enable location to mark attendance.";
         }
     }
     const msg = (error && error.message ? String(error.message) : "").toLowerCase();
     if (msg.includes("insecure") || msg.includes("https") || msg.includes("secure")) {
         return "Location is blocked on insecure pages. Open the app on HTTPS or localhost.";
     }
-    return "Please enable GPS and try again.";
+    return "Please enable location to mark attendance.";
 }
 
-const TEST_MODE_DEFAULT_COORDS = { latitude: 28.6139, longitude: 77.209 };
-const GPS_ACCURACY_THRESHOLD_M = 100;
-const ATTENDANCE_ALLOWED_RADIUS_M = 50;
-const ATTENDANCE_GPS_BUFFER_M = 20;
-const ATTENDANCE_EFFECTIVE_RADIUS_M = ATTENDANCE_ALLOWED_RADIUS_M + ATTENDANCE_GPS_BUFFER_M;
+const GPS_ACCURACY_THRESHOLD_M = 300;
+const ATTENDANCE_ALLOWED_RADIUS_M = 100;
+const ATTENDANCE_EFFECTIVE_RADIUS_M = ATTENDANCE_ALLOWED_RADIUS_M;
 
 function isLikelyMobileDevice() {
     const ua = (navigator.userAgent || "").toLowerCase();
@@ -57,13 +55,20 @@ function isLikelyMobileDevice() {
 }
 
 async function getStrictGpsLocation({
-    retries = 3,
-    timeoutMs = 10000,
+    retries = 6,
+    timeoutMs = 9000,
     accuracyMax = GPS_ACCURACY_THRESHOLD_M,
+    maxTotalMs = 18000,
 } = {}) {
     // Strict: enableHighAccuracy + maximumAge=0 + retry if accuracy > accuracyMax.
+    const start = Date.now();
     let lastError = null;
+    let bestLocation = null;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
+        const elapsed = Date.now() - start;
+        if (Number.isFinite(maxTotalMs) && elapsed >= maxTotalMs) {
+            break;
+        }
         try {
             // 1) Fast fix (getCurrentPosition) with maximumAge=0 (no cache).
             // 2) If not good enough, fall back to watchPosition to let accuracy stabilize.
@@ -73,14 +78,21 @@ async function getStrictGpsLocation({
                 maxAgeMs: 0,
             });
             let accuracy = Number(loc.accuracy) || 0;
+            if (!bestLocation || (accuracy && accuracy < bestLocation.accuracy)) {
+                bestLocation = loc;
+            }
             if (accuracyMax && Number.isFinite(accuracy) && accuracy > accuracyMax) {
+                const watchTimeout = Math.max(4500, Math.min(timeoutMs, 8000));
                 loc = await captureLocation({
                     preferHighAccuracy: true,
-                    timeoutMs,
+                    timeoutMs: watchTimeout,
                     maxAgeMs: 0,
                     targetAccuracy: accuracyMax || 0,
                 });
                 accuracy = Number(loc.accuracy) || 0;
+                if (!bestLocation || (accuracy && accuracy < bestLocation.accuracy)) {
+                    bestLocation = loc;
+                }
             }
             if (accuracyMax && Number.isFinite(accuracy) && accuracy > accuracyMax) {
                 const err = new Error("GPS accuracy too low");
@@ -97,8 +109,11 @@ async function getStrictGpsLocation({
             }
         }
         if (attempt < retries) {
-            await waitMs(450 + attempt * 350);
+            await waitMs(300 + attempt * 250);
         }
+    }
+    if (bestLocation) {
+        return bestLocation;
     }
     throw lastError || new Error("Unable to capture location");
 }
@@ -622,42 +637,6 @@ async function startTeacherSession(buttonEl) {
     }
 
     const payload = { subject_id: Number(subjectId), device_id: getOrCreateDeviceId() };
-    let manualLocation = getManualSessionLocation();
-    if (!manualLocation) {
-        const latInput = document.getElementById("manual_latitude");
-        const lngInput = document.getElementById("manual_longitude");
-        const latVal = latInput ? Number((latInput.value || "").trim()) : NaN;
-        const lngVal = lngInput ? Number((lngInput.value || "").trim()) : NaN;
-        if (
-            Number.isFinite(latVal) &&
-            Number.isFinite(lngVal) &&
-            latVal >= -90 &&
-            latVal <= 90 &&
-            lngVal >= -180 &&
-            lngVal <= 180
-        ) {
-            manualLocation = { latitude: latVal, longitude: lngVal };
-        }
-    }
-    if (!manualLocation) {
-        showClientNotice("Please set a valid session location first.", "error");
-        reenableStartButton();
-        return;
-    }
-    payload.latitude = manualLocation.latitude;
-    payload.longitude = manualLocation.longitude;
-    payload.accuracy = 0;
-    payload.manual_location = true;
-    console.log("[attendance] manual session location", {
-        latitude: payload.latitude,
-        longitude: payload.longitude,
-    });
-    console.log("[attendance] teacher location", {
-        latitude: payload.latitude,
-        longitude: payload.longitude,
-        accuracy: payload.accuracy,
-        test_mode: !!payload.test_mode,
-    });
 
     try {
         const response = await fetchWithRetry("/api/teacher/session/start", {
@@ -792,7 +771,7 @@ async function markAttendance(sessionId, buttonEl) {
             releaseAttendanceButton();
             return;
         }
-        if (data && data.is_test_mode === false && data.gps_locked === false) {
+        if (data && data.gps_locked === false) {
             showClientNotice(
                 "Teacher GPS is still stabilizing. Please wait 5–10 seconds and retry.",
                 "error"
@@ -828,49 +807,36 @@ async function markAttendance(sessionId, buttonEl) {
     let studentLocation = null;
     try {
         payload.device_id = getOrCreateDeviceId();
-        const isMobile = isLikelyMobileDevice();
-        let location = null;
-        if (isMobile && (!navigator.geolocation || !window.isSecureContext)) {
+        if (!navigator.geolocation || !window.isSecureContext) {
+            showClientNotice("Please enable location to mark attendance.", "error");
+            releaseAttendanceButton();
+            return;
+        }
+        const location = await withTimeout(
+            getStrictGpsLocation({
+                retries: 6,
+                timeoutMs: 9000,
+                accuracyMax: GPS_ACCURACY_THRESHOLD_M,
+                maxTotalMs: 18000,
+            }).catch((err) => {
+                throw err;
+            }),
+            18500,
+            null
+        );
+        if (!location) {
             showClientNotice(
-                "Live location is unavailable. Open the app on HTTPS or localhost, then enable GPS permission.",
-                "error",
-                4200
+                `Could not get accurate GPS (need <= ${GPS_ACCURACY_THRESHOLD_M}m). Enable Precise location and wait a few seconds, then try again.`,
+                "error"
             );
             releaseAttendanceButton();
             return;
         }
-        if (navigator.geolocation && window.isSecureContext && isMobile) {
-            location = await withTimeout(
-                getStrictGpsLocation({
-                    retries: 3,
-                    timeoutMs: 10000,
-                    accuracyMax: GPS_ACCURACY_THRESHOLD_M,
-                }).catch(() => null),
-                10500,
-                null
-            );
-            if (!location) {
-                showClientNotice(
-                    `Could not get a good GPS fix (need <= ${GPS_ACCURACY_THRESHOLD_M}m). Turn on Precise location + GPS + Wi‑Fi, wait 5–10 seconds, then retry near a window/outdoor.`,
-                    "error"
-                );
-                releaseAttendanceButton();
-                return;
-            }
-            studentLocation = {
-                latitude: location.latitude,
-                longitude: location.longitude,
-                accuracy: location.accuracy,
-            };
-        } else {
-            // Desktop/laptop testing mode: use a mock location close to teacher so strict 50m logic can be tested.
-            payload.test_mode = true;
-            studentLocation = {
-                latitude: teacherLocation.latitude + 0.0003,
-                longitude: teacherLocation.longitude,
-                accuracy: 0,
-            };
-        }
+        studentLocation = {
+            latitude: location.latitude,
+            longitude: location.longitude,
+            accuracy: location.accuracy,
+        };
         payload.latitude = studentLocation.latitude;
         payload.longitude = studentLocation.longitude;
         payload.accuracy = studentLocation.accuracy;
@@ -878,10 +844,13 @@ async function markAttendance(sessionId, buttonEl) {
             latitude: payload.latitude,
             longitude: payload.longitude,
             accuracy: payload.accuracy,
-            test_mode: !!payload.test_mode,
         });
     } catch (error) {
-        showClientNotice(gpsFailureMessage(error), "error");
+        const msg =
+            error && error.kind === "accuracy"
+                ? `Could not get accurate GPS (need <= ${GPS_ACCURACY_THRESHOLD_M}m). Enable Precise location and wait a few seconds, then try again.`
+                : gpsFailureMessage(error);
+        showClientNotice(msg, "error");
         releaseAttendanceButton();
         return;
     }
@@ -899,7 +868,7 @@ async function markAttendance(sessionId, buttonEl) {
         releaseAttendanceButton();
         return;
     }
-    // Don't block on client-side distance check; server is the source of truth and uses the latest teacher coords.
+    // Don't hard-block on client-side distance; server applies final distance + accuracy tolerance.
 
     try {
         const response = await fetchWithRetry("/api/student/attendance/mark", {
@@ -966,7 +935,10 @@ async function markAttendance(sessionId, buttonEl) {
                 data.message &&
                 data.message.toLowerCase().includes("outside the allowed attendance range")
             ) {
-                showClientNotice("You are outside the allowed attendance range", "error");
+                showClientNotice(
+                    "You are outside the allowed attendance range. Move closer and try again.",
+                    "error"
+                );
             } else {
                 showClientNotice(baseMessage, "error");
             }

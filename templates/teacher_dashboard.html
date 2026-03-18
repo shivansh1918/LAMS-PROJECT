@@ -9,8 +9,8 @@
 </div>
 
 <div class="card" id="teacher-location-card">
-    <h3>Set Session Location</h3>
-    <p>Set latitude/longitude as the center for attendance (50m range).</p>
+    <h3>Attendance Location (Admin)</h3>
+    <p>Location is fixed by admin and cannot be changed by teacher.</p>
     <div class="row">
         <div>
             <label for="manual_latitude">Latitude</label>
@@ -20,6 +20,8 @@
                 inputmode="decimal"
                 placeholder="e.g. 28.613900"
                 value="{{ '%.6f'|format(default_attendance_location.latitude) if default_attendance_location else '' }}"
+                readonly
+                disabled
             >
         </div>
         <div>
@@ -30,13 +32,14 @@
                 inputmode="decimal"
                 placeholder="e.g. 77.209000"
                 value="{{ '%.6f'|format(default_attendance_location.longitude) if default_attendance_location else '' }}"
+                readonly
+                disabled
             >
         </div>
     </div>
-    <div class="row" style="margin-top: 8px;">
-        <button type="button" id="set-manual-location-btn">Set Location</button>
-    </div>
-    <p id="manual-location-status" style="margin-top: 8px;"></p>
+    {% if not default_attendance_location %}
+        <p class="text-danger" style="margin-top: 8px;">Admin has not set the attendance location yet.</p>
+    {% endif %}
 </div>
 
 <div class="card">
@@ -104,7 +107,6 @@
                     <th>Roll No</th>
                     <th>Subject</th>
                     <th>Time</th>
-                    <th>Location</th>
                     <th>Action</th>
                 </tr>
             </thead>
@@ -116,14 +118,6 @@
                         <td>{{ item.subject }}</td>
                         <td>{{ item.requested_at.strftime("%d/%m/%Y %I:%M %p") if item.requested_at else "-" }}</td>
                         <td>
-                            {% if item.latitude is not none and item.longitude is not none %}
-                                {{ "%.5f"|format(item.latitude) }}, {{ "%.5f"|format(item.longitude) }}
-                                {% if item.accuracy %}(±{{ item.accuracy|round(1) }}m){% endif %}
-                            {% else %}
-                                N/A
-                            {% endif %}
-                        </td>
-                        <td>
                             <form method="post" action="{{ url_for('accept_attendance_request', request_id=item.id) }}" data-ajax-action="1" data-ajax-remove-closest="tr">
                                 <button type="submit">Accept</button>
                             </form>
@@ -133,7 +127,7 @@
                         </td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="6">No pending requests.</td></tr>
+                    <tr><td colspan="5">No pending requests.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -181,7 +175,7 @@
                         <td>{{ row.percentage }}%</td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="6">No students found for selected semester.</td></tr>
+                    <tr><td colspan="5">No students found for selected semester.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -254,7 +248,7 @@
                             </td>
                         </tr>
                     {% else %}
-                        <tr><td colspan="6">No students available for the selected semester filter.</td></tr>
+                        <tr><td colspan="5">No students available for the selected semester filter.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -391,60 +385,6 @@
 })();
 
 (() => {
-    const latInput = document.getElementById("manual_latitude");
-    const lngInput = document.getElementById("manual_longitude");
-    const setBtn = document.getElementById("set-manual-location-btn");
-    const statusEl = document.getElementById("manual-location-status");
-    const storageKey = "attendanceManualLocation";
-    if (!latInput || !lngInput || !setBtn || !statusEl) return;
-
-    const setStatus = (message, isError = false) => {
-        statusEl.textContent = message;
-        statusEl.classList.toggle("text-danger", isError);
-    };
-
-    const loadStored = () => {
-        try {
-            const raw = localStorage.getItem(storageKey);
-            if (!raw) return null;
-            const data = JSON.parse(raw);
-            const lat = Number(data.latitude);
-            const lng = Number(data.longitude);
-            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-            return { latitude: lat, longitude: lng };
-        } catch (e) {
-            return null;
-        }
-    };
-
-    const stored = loadStored();
-    if (stored) {
-        latInput.value = stored.latitude.toFixed(6);
-        lngInput.value = stored.longitude.toFixed(6);
-        setStatus("Manual location set for this session.");
-    }
-
-    setBtn.addEventListener("click", () => {
-        const lat = Number((latInput.value || "").trim());
-        const lng = Number((lngInput.value || "").trim());
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-            setStatus("Please enter valid latitude and longitude.", true);
-            return;
-        }
-        if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-            setStatus("Latitude/longitude out of range.", true);
-            return;
-        }
-        localStorage.setItem(storageKey, JSON.stringify({ latitude: lat, longitude: lng }));
-        if (typeof setForceLiveGps === "function") {
-            setForceLiveGps(false);
-        }
-        setStatus("Manual location set for this session.");
-    });
-
-})();
-
-(() => {
     const refreshBtn = document.getElementById("refresh-requests-btn");
     const body = document.getElementById("pending-requests-body");
     const wrap = document.getElementById("pending-requests-wrap");
@@ -458,22 +398,9 @@
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#39;");
-
-    const formatLocation = (row) => {
-        if (row.latitude === null || row.longitude === null || row.latitude === undefined || row.longitude === undefined) {
-            return "N/A";
-        }
-        const lat = Number(row.latitude);
-        const lng = Number(row.longitude);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return "N/A";
-        const acc = Number(row.accuracy);
-        const accText = Number.isFinite(acc) && acc > 0 ? ` (±${acc.toFixed(1)}m)` : "";
-        return `${lat.toFixed(5)}, ${lng.toFixed(5)}${accText}`;
-    };
-
-    const renderRows = (requests) => {
+const renderRows = (requests) => {
         if (!Array.isArray(requests) || requests.length === 0) {
-            body.innerHTML = "<tr><td colspan='6'>No pending requests.</td></tr>";
+            body.innerHTML = "<tr><td colspan='5'>No pending requests.</td></tr>";
             wrap.style.display = "none";
             empty.style.display = "";
             return;
@@ -483,15 +410,13 @@
         body.innerHTML = requests
             .map((row) => {
                 const timeLabel = escapeHtml(row.requested_at || "-");
-                const locationLabel = escapeHtml(formatLocation(row));
-                return `
+return `
                     <tr>
                         <td>${escapeHtml(row.student_name)}</td>
                         <td>${escapeHtml(row.roll_no)}</td>
                         <td>${escapeHtml(row.subject)}</td>
                         <td>${timeLabel}</td>
-                        <td>${locationLabel}</td>
-                        <td>
+<td>
                             <form method="post" action="/teacher/attendance-request/${row.id}/accept" data-ajax-action="1" data-ajax-remove-closest="tr">
                                 <button type="submit">Accept</button>
                             </form>
@@ -551,3 +476,5 @@
 })();
 </script>
 {% endblock %}
+
+
