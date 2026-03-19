@@ -87,6 +87,17 @@ def fmt_datetime(value):
         return str(value)
 
 
+@app.template_filter("fmt_date")
+def fmt_date(value):
+    """Format date-only values for views that should not show time."""
+    if not value:
+        return ""
+    try:
+        return value.strftime("%d/%m/%Y")
+    except Exception:
+        return str(value)
+
+
 @app.after_request
 def add_no_cache_headers(response):
     if response.mimetype in {"text/html", "application/javascript", "text/css"}:
@@ -2083,7 +2094,7 @@ def start_session():
             "message": message,
             "warning": warning,
             "session_id": new_session.id,
-            "start_time": fmt_datetime(new_session.start_time),
+            "start_time": fmt_date(new_session.start_time),
         }
     )
 

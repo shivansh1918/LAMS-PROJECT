@@ -70,7 +70,7 @@
                 <tr>
                     <th>Subject</th>
                     <th>Semester</th>
-                    <th>Start Time</th>
+                    <th>Start Date</th>
                     <th>Action</th>
                 </tr>
             </thead>
@@ -79,7 +79,7 @@
                     <tr data-teacher-session-id="{{ sess.id }}">
                         <td>{{ subject.name }}</td>
                         <td>{{ semester.name }}</td>
-                        <td>{{ sess.start_time|fmt_datetime }}</td>
+                        <td>{{ sess.start_time|fmt_date }}</td>
                         <td><button type="button" class="btn-secondary" onclick="stopTeacherSession({{ sess.id }})">Stop</button></td>
                     </tr>
                 {% endfor %}
