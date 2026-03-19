@@ -6,7 +6,7 @@ from functools import wraps
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import func, or_
+from sqlalchemy import func
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from models import (
@@ -14,7 +14,6 @@ from models import (
     AttendanceSession,
     AttendanceRequest,
     TeacherLocationHistory,
-    BlockedStudentRegistration,
     Semester,
     Student,
     Subject,
@@ -48,10 +47,13 @@ ALLOWED_SEMESTER_NAMES = [f"Semester {i}" for i in range(1, 7)]
 ALLOWED_ROLES = {"admin", "teacher", "student"}
 
 # Attendance geofence/GPS tuning
-# - Allowed radius: 100m (strict requirement)
+# - Allowed radius: 100m base rule
 # - Accuracy threshold: accept fixes within <= 300m (GPS can vary)
+# - Accuracy tolerance: add a modest buffer so valid nearby users are not
+#   rejected just because the phone reported a noisy but still acceptable fix.
 ATTENDANCE_ALLOWED_RADIUS_M = 100.0
 GPS_ACCURACY_ACCEPT_MAX_M = 300.0
+ATTENDANCE_MAX_ACCURACY_TOLERANCE_M = 50.0
 
 
 @app.context_processor
@@ -74,13 +76,13 @@ def inject_laas_logo():
     return {"laas_logo": ""}
 
 
-@app.template_filter("fmt_last_login")
-def fmt_last_login(value):
-    """Format dashboard last-login timestamps (no seconds, DD/MM/YYYY)."""
+@app.template_filter("fmt_datetime")
+def fmt_datetime(value):
+    """Format generic dashboard datetimes consistently."""
     if not value:
         return ""
     try:
-        return value.strftime("%d/%m/%Y %H:%M")
+        return value.strftime("%d/%m/%Y %I:%M %p")
     except Exception:
         return str(value)
 
@@ -274,69 +276,6 @@ def set_default_attendance_location(latitude, longitude):
 def get_current_academic_session():
     setting = SystemSetting.query.filter_by(key="current_academic_session").first()
     return setting.value if setting else None
-
-
-def set_current_academic_session(label):
-    setting = SystemSetting.query.filter_by(key="current_academic_session").first()
-    if setting:
-        setting.value = label
-    else:
-        setting = SystemSetting(key="current_academic_session", value=label)
-        db.session.add(setting)
-    db.session.commit()
-
-
-def generate_next_session_label(current_label=None):
-    if current_label:
-        parts = current_label.strip().split("-")
-        if len(parts) == 2 and parts[0].isdigit() and len(parts[0]) == 4 and parts[1].isdigit():
-            start_year = int(parts[0])
-            next_start = start_year + 1
-            return f"{next_start}-{str(next_start + 1)[-2:]}"
-    year = datetime.now().year
-    return f"{year}-{str(year + 1)[-2:]}"
-
-
-def student_self_registration_blocked(email, roll_no):
-    email = (email or "").strip().lower()
-    roll_no = (roll_no or "").strip().upper()
-    return (
-        BlockedStudentRegistration.query.filter(
-            or_(
-                BlockedStudentRegistration.email == email,
-                BlockedStudentRegistration.roll_no == roll_no,
-            )
-        ).first()
-        is not None
-    )
-
-
-def block_student_self_registration(email, roll_no, reason="Deleted by admin"):
-    email = (email or "").strip().lower()
-    roll_no = (roll_no or "").strip().upper()
-    if not email or not roll_no:
-        return
-
-    row = (
-        BlockedStudentRegistration.query.filter(
-            or_(
-                BlockedStudentRegistration.email == email,
-                BlockedStudentRegistration.roll_no == roll_no,
-            )
-        ).first()
-    )
-    if row:
-        row.email = email
-        row.roll_no = roll_no
-        row.reason = reason
-    else:
-        db.session.add(
-            BlockedStudentRegistration(
-                email=email,
-                roll_no=roll_no,
-                reason=reason,
-            )
-        )
 
 
 @app.route("/")
@@ -665,6 +604,10 @@ def student_dashboard():
         .filter(Attendance.student_id == student.id)
         .all()
     }
+    attendance_request_status_by_session = {
+        row.session_id: row.status
+        for row in AttendanceRequest.query.filter_by(student_id=student.id).all()
+    }
 
     subject_percentages = []
 
@@ -741,6 +684,7 @@ def student_dashboard():
         subjects=subjects,
         active_session_by_subject=active_session_by_subject,
         marked_session_ids=marked_session_ids,
+        attendance_request_status_by_session=attendance_request_status_by_session,
         subject_percentages=subject_percentages,
         overall_percentage=overall_percentage,
         semester_percentage_report=semester_percentage_report,
@@ -2139,6 +2083,7 @@ def start_session():
             "message": message,
             "warning": warning,
             "session_id": new_session.id,
+            "start_time": fmt_datetime(new_session.start_time),
         }
     )
 
@@ -2546,7 +2491,7 @@ def mark_attendance():
         )
 
 
-    # Strict geofence check (no tolerance): do not allow attendance beyond 100m.
+    # Add a modest GPS-based tolerance to reduce false negatives near the boundary.
     distance = haversine_meters(
         latitude,
         longitude,
@@ -2559,9 +2504,12 @@ def mark_attendance():
     allowed_radius = ATTENDANCE_ALLOWED_RADIUS_M
     teacher_accuracy = max(float(getattr(active_session, "location_accuracy", 0.0) or 0.0), 0.0)
     student_accuracy = max(float(accuracy or 0.0), 0.0)
-    accuracy_tolerance = 0.0
+    accuracy_tolerance = min(
+        ATTENDANCE_MAX_ACCURACY_TOLERANCE_M,
+        (teacher_accuracy * 0.25) + (student_accuracy * 0.25),
+    )
     base_radius = allowed_radius
-    effective_radius = allowed_radius
+    effective_radius = allowed_radius + accuracy_tolerance
     rounded_distance = round(distance, 2)
     app.logger.info(
         "Attendance distance check | student=(%s,%s acc=%.2f) teacher=(%s,%s acc=%.2f) distance_m=%.2f base_radius=%.2f tol=%.2f eff_radius=%.2f",
@@ -2595,12 +2543,16 @@ def mark_attendance():
             return jsonify(
                 {
                     "success": False,
-                    "message": "You are outside the allowed attendance range. Move closer and try again.",
+                    "message": (
+                        f"You are outside of the allowed range. "
+                        f"Your distance is {rounded_distance}m and the current limit is "
+                        f"{round(effective_radius, 2)}m."
+                    ),
                     "distance": rounded_distance,
                     "allowed_radius": allowed_radius,
                     "base_radius": base_radius,
                     "accuracy_tolerance": accuracy_tolerance,
-                    "effective_radius": effective_radius,
+                    "effective_radius": round(effective_radius, 2),
                     "teacher_accuracy": teacher_accuracy,
                     "student_accuracy": student_accuracy,
                     "student_latitude": latitude,
@@ -2645,7 +2597,26 @@ def mark_attendance():
                     "status": "accepted",
                 }
             ), 200
-        # If previously pending or rejected, refresh the request with latest in-range location.
+        if existing_request.status == "rejected":
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "Your attendance was rejected for this session. You cannot retry in the same session.",
+                    "status": "rejected",
+                    "distance": rounded_distance,
+                }
+            ), 403
+        # If previously pending, do not create another request for the same session.
+        if existing_request.status == "pending":
+            return jsonify(
+                {
+                    "success": True,
+                    "message": "Your attendance request is already pending for this session.",
+                    "status": "pending",
+                    "distance": rounded_distance,
+                }
+            ), 200
+        # Fallback for unexpected legacy status values: refresh as pending.
         existing_request.status = "pending"
         existing_request.requested_at = datetime.now()
         existing_request.latitude = latitude

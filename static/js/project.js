@@ -48,6 +48,16 @@ function gpsFailureMessage(error) {
 const GPS_ACCURACY_THRESHOLD_M = 300;
 const ATTENDANCE_ALLOWED_RADIUS_M = 100;
 const ATTENDANCE_EFFECTIVE_RADIUS_M = ATTENDANCE_ALLOWED_RADIUS_M;
+const ATTENDANCE_RETRY_ACCURACY_TARGET_M = 120;
+const ATTENDANCE_RETRY_DISTANCE_BUFFER_M = 35;
+
+function formatAttendanceRangeMessage(data) {
+    return "You are outside of the allowed range.";
+}
+
+function getAttendanceOutOfRangeMessage(data) {
+    return formatAttendanceRangeMessage(data);
+}
 
 function isLikelyMobileDevice() {
     const ua = (navigator.userAgent || "").toLowerCase();
@@ -112,10 +122,48 @@ async function getStrictGpsLocation({
             await waitMs(300 + attempt * 250);
         }
     }
-    if (bestLocation) {
+    if (
+        bestLocation &&
+        (!accuracyMax ||
+            (Number.isFinite(bestLocation.accuracy) && bestLocation.accuracy <= accuracyMax))
+    ) {
         return bestLocation;
     }
     throw lastError || new Error("Unable to capture location");
+}
+
+async function captureAttendanceStudentLocation({
+    retries = 6,
+    timeoutMs = 9000,
+    accuracyMax = GPS_ACCURACY_THRESHOLD_M,
+    maxTotalMs = 18000,
+} = {}) {
+    return withTimeout(
+        getStrictGpsLocation({
+            retries,
+            timeoutMs,
+            accuracyMax,
+            maxTotalMs,
+        }).catch((err) => {
+            throw err;
+        }),
+        maxTotalMs + 500,
+        null
+    );
+}
+
+async function getImprovedAttendanceLocation(currentLocation) {
+    const currentAccuracy = Number(currentLocation && currentLocation.accuracy);
+    const targetAccuracy = Number.isFinite(currentAccuracy) && currentAccuracy > 0
+        ? Math.min(ATTENDANCE_RETRY_ACCURACY_TARGET_M, Math.max(30, currentAccuracy - 20))
+        : ATTENDANCE_RETRY_ACCURACY_TARGET_M;
+
+    return captureAttendanceStudentLocation({
+        retries: 2,
+        timeoutMs: 7000,
+        accuracyMax: targetAccuracy,
+        maxTotalMs: 9000,
+    });
 }
 
 async function getGpsLocationOrNull(options = {}) {
@@ -672,7 +720,7 @@ async function startTeacherSession(buttonEl) {
                         semesterSelect && semesterSelect.selectedOptions.length
                             ? semesterSelect.selectedOptions[0].textContent.trim()
                             : "Semester";
-                    timeCell.textContent = new Date().toLocaleString();
+                    timeCell.textContent = data.start_time || "";
                     const stopBtn = document.createElement("button");
                     stopBtn.type = "button";
                     stopBtn.className = "btn-secondary";
@@ -728,6 +776,16 @@ function setPendingAttendanceButton(buttonEl) {
     buttonEl.disabled = true;
     delete buttonEl.dataset.attendancePending;
     buttonEl.textContent = "Pending Approval";
+    buttonEl.classList.remove("btn-marked");
+    buttonEl.classList.add("btn-secondary");
+    buttonEl.removeAttribute("onclick");
+}
+
+function setRejectedAttendanceButton(buttonEl) {
+    if (!buttonEl) return;
+    buttonEl.disabled = true;
+    delete buttonEl.dataset.attendancePending;
+    buttonEl.textContent = "Rejected";
     buttonEl.classList.remove("btn-marked");
     buttonEl.classList.add("btn-secondary");
     buttonEl.removeAttribute("onclick");
@@ -812,23 +870,14 @@ async function markAttendance(sessionId, buttonEl) {
             releaseAttendanceButton();
             return;
         }
-        const location = await withTimeout(
-            getStrictGpsLocation({
-                retries: 6,
-                timeoutMs: 9000,
-                accuracyMax: GPS_ACCURACY_THRESHOLD_M,
-                maxTotalMs: 18000,
-            }).catch((err) => {
-                throw err;
-            }),
-            18500,
-            null
-        );
+        const location = await captureAttendanceStudentLocation({
+            retries: 6,
+            timeoutMs: 9000,
+            accuracyMax: GPS_ACCURACY_THRESHOLD_M,
+            maxTotalMs: 18000,
+        });
         if (!location) {
-            showClientNotice(
-                `Could not get accurate GPS (need <= ${GPS_ACCURACY_THRESHOLD_M}m). Enable Precise location and wait a few seconds, then try again.`,
-                "error"
-            );
+            showClientNotice(getAttendanceOutOfRangeMessage(), "error");
             releaseAttendanceButton();
             return;
         }
@@ -848,7 +897,7 @@ async function markAttendance(sessionId, buttonEl) {
     } catch (error) {
         const msg =
             error && error.kind === "accuracy"
-                ? `Could not get accurate GPS (need <= ${GPS_ACCURACY_THRESHOLD_M}m). Enable Precise location and wait a few seconds, then try again.`
+                ? getAttendanceOutOfRangeMessage()
                 : gpsFailureMessage(error);
         showClientNotice(msg, "error");
         releaseAttendanceButton();
@@ -869,6 +918,48 @@ async function markAttendance(sessionId, buttonEl) {
         return;
     }
     // Don't hard-block on client-side distance; server applies final distance + accuracy tolerance.
+    if (
+        Number.isFinite(distance) &&
+        distance > effectiveRadius + ATTENDANCE_RETRY_DISTANCE_BUFFER_M
+    ) {
+        try {
+            const improvedLocation = await getImprovedAttendanceLocation(studentLocation);
+            if (improvedLocation) {
+                const improvedDistance = haversineMeters(
+                    improvedLocation.latitude,
+                    improvedLocation.longitude,
+                    teacherLocation.latitude,
+                    teacherLocation.longitude
+                );
+                const currentAccuracy = Number(studentLocation.accuracy) || Number.POSITIVE_INFINITY;
+                const improvedAccuracy = Number(improvedLocation.accuracy) || Number.POSITIVE_INFINITY;
+                const shouldUseImprovedLocation =
+                    Number.isFinite(improvedDistance) &&
+                    (
+                        improvedDistance < distance ||
+                        improvedAccuracy < currentAccuracy
+                    );
+                if (shouldUseImprovedLocation) {
+                    studentLocation = {
+                        latitude: improvedLocation.latitude,
+                        longitude: improvedLocation.longitude,
+                        accuracy: improvedLocation.accuracy,
+                    };
+                    payload.latitude = studentLocation.latitude;
+                    payload.longitude = studentLocation.longitude;
+                    payload.accuracy = studentLocation.accuracy;
+                    console.log("[attendance] improved student location", {
+                        latitude: payload.latitude,
+                        longitude: payload.longitude,
+                        accuracy: payload.accuracy,
+                        distance: improvedDistance,
+                    });
+                }
+            }
+        } catch (error) {
+            // Keep the best known reading and let the server make the final decision.
+        }
+    }
 
     try {
         const response = await fetchWithRetry("/api/student/attendance/mark", {
@@ -926,19 +1017,77 @@ async function markAttendance(sessionId, buttonEl) {
                 message.toLowerCase().includes("accuracy") &&
                 message.toLowerCase().includes("too low")
             ) {
-                showClientNotice(message, "error");
+                showClientNotice(getAttendanceOutOfRangeMessage(data), "error");
                 releaseAttendanceButton();
                 return;
             }
             if (
                 data &&
                 data.message &&
-                data.message.toLowerCase().includes("outside the allowed attendance range")
+                data.message.toLowerCase().includes("outside of the allowed range")
             ) {
+                const canRetryRangeCheck =
+                    Number.isFinite(data.student_accuracy) &&
+                    data.student_accuracy > 25 &&
+                    Number.isFinite(data.distance) &&
+                    Number.isFinite(data.effective_radius) &&
+                    data.distance <= data.effective_radius + Math.min(data.student_accuracy, 80);
+                if (canRetryRangeCheck) {
+                    try {
+                        const improvedLocation = await getImprovedAttendanceLocation(studentLocation);
+                        if (improvedLocation) {
+                            payload.latitude = improvedLocation.latitude;
+                            payload.longitude = improvedLocation.longitude;
+                            payload.accuracy = improvedLocation.accuracy;
+                            const retryResponse = await fetchWithRetry("/api/student/attendance/mark", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify(payload),
+                            });
+                            const retryData = await parseApiResponse(retryResponse);
+                            if (retryResponse.ok && retryData.success) {
+                                if (retryData.status === "pending") {
+                                    showClientNotice(
+                                        retryData.message || "Attendance request sent for approval.",
+                                        "success"
+                                    );
+                                    setPendingAttendanceButton(buttonEl);
+                                    const sessionButtons = document.querySelectorAll(`[data-session-id="${sessionId}"]`);
+                                    sessionButtons.forEach((btn) => setPendingAttendanceButton(btn));
+                                    releaseAttendanceButton(true);
+                                    return;
+                                }
+                                showClientNotice(
+                                    retryData.already_marked
+                                        ? "Attendance already marked."
+                                        : "Attendance marked successfully.",
+                                    "success"
+                                );
+                                setMarkedAttendanceButton(buttonEl);
+                                const sessionButtons = document.querySelectorAll(`[data-session-id="${sessionId}"]`);
+                                sessionButtons.forEach((btn) => setMarkedAttendanceButton(btn));
+                                releaseAttendanceButton(true);
+                                return;
+                            }
+                            showClientNotice(formatAttendanceRangeMessage(retryData || data), "error");
+                            releaseAttendanceButton();
+                            return;
+                        }
+                    } catch (error) {
+                        // Fall through to the original range message.
+                    }
+                }
+                showClientNotice(formatAttendanceRangeMessage(data), "error");
+            } else if (data && data.status === "rejected") {
                 showClientNotice(
-                    "You are outside the allowed attendance range. Move closer and try again.",
+                    data.message || "Your attendance was rejected for this session.",
                     "error"
                 );
+                setRejectedAttendanceButton(buttonEl);
+                const sessionButtons = document.querySelectorAll(`[data-session-id="${sessionId}"]`);
+                sessionButtons.forEach((btn) => setRejectedAttendanceButton(btn));
+                releaseAttendanceButton(true);
+                return;
             } else {
                 showClientNotice(baseMessage, "error");
             }

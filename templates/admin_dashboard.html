@@ -3,7 +3,6 @@
 <div class="card" id="admin-overview">
     <h2>Admin Dashboard</h2>
     <p>Manage semesters, subjects, users and attendance reports.</p>
-    <p><span class="badge">Last Login: {{ admin_user.last_login_at|fmt_last_login if admin_user and admin_user.last_login_at else "First Login" }}</span></p>
 </div>
 
 <div class="card admin-toolbar">
@@ -328,7 +327,7 @@
     <h3>Teachers</h3>
     <div class="table-wrap">
         <table>
-            <thead><tr><th>Teacher ID</th><th>Name</th><th>Email</th><th>Department</th><th>Last Login</th><th>Delete</th></tr></thead>
+            <thead><tr><th>Teacher ID</th><th>Name</th><th>Email</th><th>Department</th><th>Delete</th></tr></thead>
             <tbody>
                 {% for teacher, user in teachers %}
                     <tr>
@@ -336,7 +335,6 @@
                         <td>{{ user.name }}</td>
                         <td>{{ user.email }}</td>
                         <td>{{ teacher.department }}</td>
-                        <td>{{ user.last_login_at|fmt_last_login if user.last_login_at else "-" }}</td>
                         <td>
                             <form method="post" action="{{ url_for('admin_delete_teacher', teacher_id=teacher.id) }}" data-ajax-action="1" data-ajax-remove-closest="tr" onsubmit="return confirm('Delete this teacher and related session/attendance data?');">
                                 <button type="submit" class="btn-secondary">Delete</button>
@@ -373,7 +371,7 @@
             <h4 style="margin: 14px 0 8px;">{{ sem.name }} ({{ sem_students|length }})</h4>
             <div class="table-wrap">
                 <table>
-                    <thead><tr><th>Name</th><th>Roll</th><th>Email</th><th>Semester</th><th>Verified</th><th>Action</th><th>Last Login</th><th>View</th><th>Delete</th></tr></thead>
+                    <thead><tr><th>Name</th><th>Roll</th><th>Email</th><th>Semester</th><th>Verified</th><th>Action</th><th>View</th><th>Delete</th></tr></thead>
                     <tbody>
                         {% for student, user, semester in sem_students %}
                             <tr>
@@ -397,7 +395,6 @@
                                         </form>
                                     {% endif %}
                                 </td>
-                                <td>{{ user.last_login_at|fmt_last_login if user.last_login_at else "-" }}</td>
                                 <td>
                                     <button type="button" class="btn-secondary js-view-student" data-roll="{{ student.roll_no }}">View</button>
                                 </td>
@@ -585,8 +582,8 @@
                                             <td>{{ row.session.id }}</td>
                                             <td>{{ row.subject.name }}</td>
                                             <td>{{ row.semester.name }}</td>
-                                            <td>{{ row.session.start_time }}</td>
-                                            <td>{{ row.session.end_time if row.session.end_time else "-" }}</td>
+                                            <td>{{ row.session.start_time|fmt_datetime }}</td>
+                                            <td>{{ row.session.end_time|fmt_datetime if row.session.end_time else "-" }}</td>
                                             <td>
                                                 <form
                                                     method="post"

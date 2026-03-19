@@ -4,7 +4,6 @@
     <h2>Teacher Dashboard</h2>
     <p><b>Teacher:</b> {{ user.name }}</p>
     <p><b>Teacher ID:</b> {{ teacher.teacher_id }}</p>
-    <p><b>Last Login:</b> {{ user.last_login_at|fmt_last_login if user.last_login_at else "First Login" }}</p>
     <p>Start session captures your live location and opens attendance for matching semester/subject students.</p>
 </div>
 
@@ -80,7 +79,7 @@
                     <tr data-teacher-session-id="{{ sess.id }}">
                         <td>{{ subject.name }}</td>
                         <td>{{ semester.name }}</td>
-                        <td>{{ sess.start_time }}</td>
+                        <td>{{ sess.start_time|fmt_datetime }}</td>
                         <td><button type="button" class="btn-secondary" onclick="stopTeacherSession({{ sess.id }})">Stop</button></td>
                     </tr>
                 {% endfor %}
@@ -237,8 +236,7 @@
                                     <ul class="tiny-list">
                                         {% for detail in row.daily_records %}
                                             <li>
-                                                <span>{{ detail.time }}</span>
-                                                <span style="margin-left: 8px;">{{ detail.subject }}</span>
+                                                <span>{{ detail.subject }}</span>
                                             </li>
                                         {% endfor %}
                                     </ul>

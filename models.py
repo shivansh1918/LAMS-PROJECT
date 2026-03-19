@@ -24,16 +24,6 @@ class User(db.Model):
     last_login_at = db.Column(db.DateTime, nullable=True)
 
 
-class BlockedStudentRegistration(db.Model):
-    __tablename__ = "blocked_student_registrations"
-
-    id = db.Column(db.Integer, primary_key=True)
-    email = db.Column(db.String(255), nullable=False, unique=True)
-    roll_no = db.Column(db.String(40), nullable=False, unique=True)
-    reason = db.Column(db.String(255), nullable=True)
-    created_at = db.Column(db.DateTime, server_default=db.func.current_timestamp(), nullable=False)
-
-
 class Semester(db.Model):
     __tablename__ = "semesters"
 

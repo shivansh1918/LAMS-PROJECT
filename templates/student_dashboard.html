@@ -3,8 +3,6 @@
 <div class="card">
     <h2>Student Dashboard</h2>
     <p><b>Name:</b> {{ user.name }} | <b>Roll:</b> {{ student.roll_no }} | <b>Registered Semester:</b> {{ semester.name }}</p>
-    <p><b>Last Login:</b> {{ user.last_login_at|fmt_last_login if user.last_login_at else "First Login" }}</p>
-    <p><span class="badge">Overall Attendance: {{ overall_percentage }}%</span></p>
 </div>
 
 <div class="card">
@@ -52,8 +50,13 @@
                         <td>
                             {% if session_data and student.semester_id == selected_semester.id %}
                                 {% set sid = session_data[0].id %}
+                                {% set request_status = attendance_request_status_by_session.get(sid) %}
                                 {% if sid in marked_session_ids %}
                                     <button type="button" class="btn-marked" data-session-id="{{ sid }}" disabled>Marked</button>
+                                {% elif request_status == 'rejected' %}
+                                    <button type="button" class="btn-secondary" data-session-id="{{ sid }}" disabled>Rejected</button>
+                                {% elif request_status == 'pending' %}
+                                    <button type="button" class="btn-secondary" data-session-id="{{ sid }}" disabled>Pending Approval</button>
                                 {% else %}
                                     <button
                                         type="button"
