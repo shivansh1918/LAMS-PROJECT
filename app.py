@@ -1034,7 +1034,7 @@ def api_teacher_attendance_requests():
             "id": req.id,
             "student_name": user_row.name,
             "roll_no": student.roll_no,
-            "requested_at": req.requested_at.strftime("%d/%m/%Y %I:%M %p")
+            "requested_at": fmt_date(req.requested_at)
             if req.requested_at
             else "",
             "latitude": req.latitude,
