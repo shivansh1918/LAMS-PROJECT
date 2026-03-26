@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+routes/__pycache__/
+instance/*.db
+instance/*.sqlite
+.venv/
