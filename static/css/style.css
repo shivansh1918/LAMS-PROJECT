@@ -22,7 +22,7 @@ body {
     margin: 0;
     color: var(--text);
     font-family: "Manrope", sans-serif;
-    background: radial-gradient(circle at 15% 20%, #132449, transparent 40%),
+    background: radial-gradient(circle at 15% 20%, #1e3c84, transparent 40%),
         radial-gradient(circle at 80% 10%, #0f3e5b, transparent 35%),
         linear-gradient(160deg, #060a15, #0a1124 40%, #090f20);
     min-height: 100vh;
